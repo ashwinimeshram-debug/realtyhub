@@ -1,0 +1,44 @@
+# Environment files
+.env
+.env.local
+.env.production
+backend/.env
+frontend/.env.local
+
+# Node
+node_modules/
+.next/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads (user-generated content)
+backend/uploads/
+
+# Coverage / reports
+coverage/
+htmlcov/
+
+# Secrets / cookies
+cookies.txt
+
+# Large binary documents
+*.docx
+
+# Next.js build artifacts
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
