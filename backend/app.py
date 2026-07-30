@@ -497,6 +497,8 @@ def _run_migrations():
 def _run_migrations_or_alembic():
     """Run inline migrations for idempotent schema additions, then stamp Alembic head."""
     _run_migrations()
+    if db.engine.dialect.name != "mysql":
+        return
     from alembic.config import Config as AlembicConfig
     from alembic import command
     alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "alembic.ini"))
