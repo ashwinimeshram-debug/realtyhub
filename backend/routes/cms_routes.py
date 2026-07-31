@@ -61,6 +61,15 @@ def admin_get_hero():
     } for s in slides])
 
 
+def _clean_int(value, default=None):
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @cms_bp.route("/admin/hero", methods=["POST"])
 @jwt_required()
 def add_hero():
@@ -74,17 +83,22 @@ def add_hero():
         image=data.get("image"), title=data.get("title"), subtitle=data.get("subtitle"),
         button_text=data.get("button_text"), button_link=data.get("button_link"),
         background_color=data.get("background_color"), button_bg_color=data.get("button_bg_color"),
-        order=data.get("order", 0), is_active=True,
-        overlay_opacity=data.get("overlay_opacity", 40),
+        order=_clean_int(data.get("order"), 0), is_active=True,
+        overlay_opacity=_clean_int(data.get("overlay_opacity"), 40),
         content_vertical=data.get("content_vertical", "middle"),
         title_color=data.get("title_color"), title_align=data.get("title_align"),
-        title_font_family=data.get("title_font_family"), title_font_size=data.get("title_font_size"),
-        title_font_style=data.get("title_font_style"), title_line_height=data.get("title_line_height"),
+        title_font_family=data.get("title_font_family"),
+        title_font_size=_clean_int(data.get("title_font_size")),
+        title_font_style=data.get("title_font_style"),
+        title_line_height=_clean_int(data.get("title_line_height")),
         subtitle_color=data.get("subtitle_color"), subtitle_align=data.get("subtitle_align"),
-        subtitle_font_family=data.get("subtitle_font_family"), subtitle_font_size=data.get("subtitle_font_size"),
-        subtitle_font_style=data.get("subtitle_font_style"), subtitle_line_height=data.get("subtitle_line_height"),
+        subtitle_font_family=data.get("subtitle_font_family"),
+        subtitle_font_size=_clean_int(data.get("subtitle_font_size")),
+        subtitle_font_style=data.get("subtitle_font_style"),
+        subtitle_line_height=_clean_int(data.get("subtitle_line_height")),
         button_color=data.get("button_color"), button_align=data.get("button_align"),
-        button_font_family=data.get("button_font_family"), button_font_size=data.get("button_font_size"),
+        button_font_family=data.get("button_font_family"),
+        button_font_size=_clean_int(data.get("button_font_size")),
         button_font_style=data.get("button_font_style"),
     )
     db.session.add(slide)
@@ -103,7 +117,7 @@ def update_hero(id):
     slide.button_text = data.get("button_text", slide.button_text)
     slide.button_link = data.get("button_link", slide.button_link)
     if "overlay_opacity" in data:
-        slide.overlay_opacity = data["overlay_opacity"]
+        slide.overlay_opacity = _clean_int(data["overlay_opacity"])
     if "content_vertical" in data:
         slide.content_vertical = data["content_vertical"]
     if "title_color" in data:
@@ -113,11 +127,11 @@ def update_hero(id):
     if "title_font_family" in data:
         slide.title_font_family = data["title_font_family"]
     if "title_font_size" in data:
-        slide.title_font_size = int(data["title_font_size"]) if data["title_font_size"] else None
+        slide.title_font_size = _clean_int(data["title_font_size"])
     if "title_font_style" in data:
         slide.title_font_style = data["title_font_style"]
     if "title_line_height" in data:
-        slide.title_line_height = int(data["title_line_height"]) if data["title_line_height"] else None
+        slide.title_line_height = _clean_int(data["title_line_height"])
     if "subtitle_color" in data:
         slide.subtitle_color = data["subtitle_color"]
     if "subtitle_align" in data:
@@ -125,11 +139,11 @@ def update_hero(id):
     if "subtitle_font_family" in data:
         slide.subtitle_font_family = data["subtitle_font_family"]
     if "subtitle_font_size" in data:
-        slide.subtitle_font_size = int(data["subtitle_font_size"]) if data["subtitle_font_size"] else None
+        slide.subtitle_font_size = _clean_int(data["subtitle_font_size"])
     if "subtitle_font_style" in data:
         slide.subtitle_font_style = data["subtitle_font_style"]
     if "subtitle_line_height" in data:
-        slide.subtitle_line_height = int(data["subtitle_line_height"]) if data["subtitle_line_height"] else None
+        slide.subtitle_line_height = _clean_int(data["subtitle_line_height"])
     if "background_color" in data:
         slide.background_color = data["background_color"]
     if "button_color" in data:
@@ -141,7 +155,7 @@ def update_hero(id):
     if "button_font_family" in data:
         slide.button_font_family = data["button_font_family"]
     if "button_font_size" in data:
-        slide.button_font_size = int(data["button_font_size"]) if data["button_font_size"] else None
+        slide.button_font_size = _clean_int(data["button_font_size"])
     if "button_font_style" in data:
         slide.button_font_style = data["button_font_style"]
     db.session.commit()
