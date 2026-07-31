@@ -13,7 +13,7 @@ gallery_bp = Blueprint("gallery", __name__)
 SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "realtyhub-images")
 
 def _public_url(path: str) -> str:
-    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}" if supabase_url else ""
 
 def _path_from_url(url: str) -> str:
@@ -101,6 +101,10 @@ def _allowed_file(ext: str) -> bool:
     return ext.lower() in allowed
 
 
+def _is_folder(item: dict) -> bool:
+    return item.get("id") is None or item.get("metadata") is None
+
+
 @gallery_bp.route("/admin/gallery", methods=["GET"])
 @jwt_required()
 def list_gallery_files():
@@ -109,28 +113,28 @@ def list_gallery_files():
     files = []
     for item in root_items:
         name = item.get("name", "")
-        if name.endswith("/"):
+        if _is_folder(item):
             folder_name = name.rstrip("/")
             sub = list_files(folder_name)
             file_count = len(sub)
             folders.append({"name": folder_name, "file_count": file_count})
-        else:
-            ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-            if not _allowed_file(ext):
-                continue
-            meta = item.get("metadata") or {}
-            files.append({
-                "filename": name,
-                "url": _public_url(name),
-                "size": meta.get("size", 0),
-                "last_modified": item.get("updated_at", ""),
-                "folder": "",
-            })
+            continue
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if not _allowed_file(ext):
+            continue
+        meta = item.get("metadata") or {}
+        files.append({
+            "filename": name,
+            "url": _public_url(name),
+            "size": meta.get("size", 0),
+            "last_modified": item.get("updated_at", ""),
+            "folder": "",
+        })
     for folder in sorted(folders, key=lambda f: f["name"].lower()):
         sub_items = list_files(folder["name"])
         for sub_item in sub_items:
             fname = sub_item.get("name", "")
-            if fname.endswith("/"):
+            if _is_folder(sub_item):
                 continue
             ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
             if not _allowed_file(ext):

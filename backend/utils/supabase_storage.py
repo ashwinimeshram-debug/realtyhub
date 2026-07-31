@@ -36,7 +36,7 @@ def upload_file(file_obj, path: str) -> str:
     client = _get_client()
     data = file_obj.read() if hasattr(file_obj, "read") else file_obj
     client.storage.from_(SUPABASE_BUCKET).upload(path, data)
-    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
 
 def delete_file(path: str):
@@ -58,7 +58,7 @@ def rename_file(old_path: str, new_path: str) -> str:
         return _local_url(new_path)
     client = _get_client()
     client.storage.from_(SUPABASE_BUCKET).move(old_path, new_path)
-    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{new_path}"
 
 def list_files(folder: str = "") -> list:
@@ -69,7 +69,7 @@ def list_files(folder: str = "") -> list:
         items = []
         for name in sorted(os.listdir(base)):
             full = os.path.join(base, name)
-            items.append({"name": name, "id": name})
+            items.append({"name": name, "id": None if os.path.isdir(full) else name})
         return items
     client = _get_client()
     return client.storage.from_(SUPABASE_BUCKET).list(folder)

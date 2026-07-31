@@ -301,13 +301,20 @@ def toggle_advantage(id):
 @jwt_required()
 def list_media():
     allowed = current_app.config.get("ALLOWED_EXTENSIONS", {"png", "jpg", "jpeg", "gif", "webp", "avif"})
-    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     bucket = os.environ.get("SUPABASE_BUCKET", "realtyhub-images")
-    items = storage_list("")
+    root_items = storage_list("")
+    folders = []
     files = []
-    for item in items:
+
+    def is_folder(item):
+        return item.get("id") is None or item.get("metadata") is None
+
+    for item in root_items:
         fname = item.get("name", "")
-        if fname.endswith("/"):
+        if is_folder(item):
+            folder_name = fname.rstrip("/")
+            folders.append(folder_name)
             continue
         ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
         if ext not in allowed:
@@ -319,6 +326,21 @@ def list_media():
             "size": meta.get("size", 0),
             "last_modified": item.get("updated_at", ""),
         })
+    for folder in sorted(folders):
+        for item in storage_list(folder):
+            fname = item.get("name", "")
+            if is_folder(item):
+                continue
+            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            if ext not in allowed:
+                continue
+            meta = item.get("metadata") or {}
+            files.append({
+                "filename": f"{folder}/{fname}",
+                "url": f"{supabase_url}/storage/v1/object/public/{bucket}/{folder}/{fname}" if supabase_url else "",
+                "size": meta.get("size", 0),
+                "last_modified": item.get("updated_at", ""),
+            })
     files.sort(key=lambda f: f.get("last_modified", ""), reverse=True)
     return jsonify({"files": files})
 
