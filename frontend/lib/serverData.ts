@@ -2,11 +2,19 @@ import { API_BASE_URL } from "./assets";
 
 export const REVALIDATE = 60;
 
+const SERVER_API_BASE_URL = (() => {
+  const backend = process.env.NEXT_PUBLIC_BACKEND_URL || "";
+  if (backend) {
+    return `${backend.replace(/\/+$/, "")}/api`;
+  }
+  return API_BASE_URL;
+})();
+
 export async function fetchJson(path: string, revalidate: number = REVALIDATE) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(`${SERVER_API_BASE_URL}${path}`, {
       signal: controller.signal,
       next: { revalidate },
       headers: { Accept: "application/json" },
