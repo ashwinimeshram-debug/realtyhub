@@ -7,7 +7,7 @@ import InlineUnitInput from "./InlineUnitInput";
 export interface FieldDef {
   field_key: string;
   field_label: string;
-  field_type: "chip" | "select" | "unit_input";
+  field_type: "chip" | "select" | "unit_input" | "text";
   options?: string[] | null;
   unit_options?: string[] | null;
   placeholder?: string;
@@ -34,6 +34,24 @@ export default function DynamicField({ field, value, onChange, disabled }: Dynam
           options={field.options || []}
           value={value || null}
           onChange={(v) => onChange(field.field_key, v || "")}
+          disabled={disabled}
+        />
+      </div>
+    );
+  }
+
+  if (field.field_type === "text") {
+    return (
+      <div>
+        <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>
+          {field.field_label} {field.is_required && <span className="text-red-500">*</span>}
+        </label>
+        <input
+          type="text"
+          className={inputClass}
+          value={value || ""}
+          onChange={(e) => onChange(field.field_key, e.target.value)}
+          placeholder={field.placeholder || `Enter ${field.field_label}`}
           disabled={disabled}
         />
       </div>

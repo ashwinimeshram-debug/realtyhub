@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import API, { backendAssetUrl, encodePropertyId } from "@/lib/api";
+import { formatPriceDisplay } from "@/lib/priceFormat";
 import SectionHeaderEditor from "@/components/admin/SectionHeaderEditor";
 import { useToast } from "@/components/Toast";
 
@@ -167,9 +168,7 @@ export default function FeaturedPropertiesPage() {
                   <p className="text-xs text-gray-500 truncate">📍 {p.location}</p>
                 )}
                 <p className="text-sm font-bold text-[var(--primary)]">
-                  {p.price != null && Number(p.price) > 0
-                    ? `₹ ${Number(p.price).toLocaleString("en-IN")}`
-                    : "Price on Request"}
+                  {formatPriceDisplay(p.price, p.price_text)}
                 </p>
               </div>
 

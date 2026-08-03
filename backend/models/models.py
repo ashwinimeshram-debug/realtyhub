@@ -12,6 +12,7 @@ class Property(db.Model):
     transaction_type = db.Column(db.String(20))
     property_type = db.Column(db.String(50), nullable=False, default="flat")
     price = db.Column(db.Numeric(12, 2))
+    price_text = db.Column(db.String(50), default="*")
     location = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(20), default="pending")
     is_active = db.Column(db.Boolean, default=False)

@@ -3,7 +3,7 @@
 > **Project:** Realty Hub  
 > **Type:** Real Estate Listing Platform  
 > **Architecture:** Flask REST API (Backend) + Next.js 16 App Router (Frontend)  
-> **Database:** MySQL via SQLAlchemy 2.0  
+> **Database:** PostgreSQL via SQLAlchemy 2.0  
 > **Auth:** JWT + CSRF (HTTP-only cookies)  
 > **Repository:** `C:\xampp\htdocs\realtyhub`
 
@@ -765,7 +765,7 @@ Admin renames file in /admin/gallery
 |---------|-------|
 | SECRET_KEY | Auto-generated if missing |
 | JWT_SECRET_KEY | Auto-generated if missing |
-| SQLALCHEMY_DATABASE_URI | mysql+pymysql://root@localhost/realtyhub |
+| SQLALCHEMY_DATABASE_URI | postgresql+psycopg2://postgres@localhost:5432/realtyhub |
 | UPLOAD_FOLDER | ../uploads |
 | MAX_CONTENT_LENGTH | 50 * 1024 * 1024 (50MB) |
 | MAX_FILE_SIZE | 10 * 1024 * 1024 (10MB) |
@@ -776,8 +776,8 @@ Admin renames file in /admin/gallery
 
 ### requirements.txt Key Packages
 Flask 3.1.3, SQLAlchemy 2.0.48, Flask-JWT-Extended 4.7.1, bcrypt 4.3.0,
-PyMySQL 1.1.1, Flask-CORS 5.0.1, Flask-Limiter 3.10.1, Flask-Mail 0.10.0,
-Pillow 11.2.1, gunicorn 23.0.0, python-dotenv 1.1.0
+psycopg2-binary 2.9.11, Flask-CORS 5.0.1, Flask-Limiter 4.1.1, Flask-Mail 0.10.0,
+gunicorn 25.3.0, python-dotenv 1.2.2
 
 ---
 

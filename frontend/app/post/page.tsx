@@ -4,9 +4,10 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import API from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { processImages } from "@/lib/imageProcessor";
-import { formatIndianPrice, parseNumericPrice, priceInWords } from "@/lib/priceFormat";
 import ImageUploader from "@/components/ImageUploader";
 import DynamicField, { type FieldDef } from "@/components/post-property/DynamicField";
+import PriceInput from "@/components/post-property/PriceInput";
+import { isPriceRequestOnly } from "@/lib/priceFormat";
 
 function SectionHeader({ icon, title, right }: { icon: React.ReactNode; title: string; right?: React.ReactNode }) {
   return (
@@ -180,7 +181,9 @@ export default function PostProperty() {
     }
     if (!form.mobile?.trim() && !form.email?.trim()) { toast("Please provide Mobile or Email", "warning"); return; }
     if (!form.title?.trim()) { toast("Please enter a property title", "warning"); return; }
-    if (!form.price?.trim() && form.price !== "Connect for Price") { toast("Please enter a price", "warning"); return; }
+    const priceRequestOnly = isPriceRequestOnly(form.price_text || "*");
+    if (!priceRequestOnly && !form.price?.trim()) { toast("Please enter a price", "warning"); return; }
+    if (!priceRequestOnly && form.price?.trim() && isNaN(Number(form.price.replace(/[₹$,\s]/g, "")))) { toast("Please enter a valid price", "warning"); return; }
     if (!form.location?.trim()) { toast("Please enter a location", "warning"); return; }
     if (!form.transaction_type) { toast("Please select Buy or Rent", "warning"); return; }
     if (!form.property_type) { toast("Please select a property type", "warning"); return; }
@@ -388,30 +391,12 @@ export default function PostProperty() {
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Price <span className="text-red-500">*</span></label>
-                {form.price === "Connect for Price" ? (
-                  <div className="flex items-center gap-2">
-                    <input className="form-input flex-1" value="Connect for Price" readOnly />
-                    <button type="button" onClick={() => setForm({ ...form, price: "" })} className="text-xs text-red-500 hover:text-red-700 whitespace-nowrap">Clear</button>
-                  </div>
-                ) : (
-                  <>
-                    <input
-                      className="form-input"
-                      placeholder="e.g. 500000"
-                      value={formatIndianPrice(form.price || "")}
-                      onChange={(e) => setForm({ ...form, price: parseNumericPrice(e.target.value) })}
-                      inputMode="numeric"
-                    />
-                    {form.price && form.price !== "Connect for Price" && (
-                      <p className="text-xs mt-1 font-medium" style={{ color: "var(--text-muted)" }}>
-                        {priceInWords(form.price)}
-                      </p>
-                    )}
-                  </>
-                )}
-                <button type="button" onClick={() => setForm({ ...form, price: "Connect for Price" })} className="mt-2 px-3 py-1 rounded-full text-xs font-medium border transition" style={form.price === "Connect for Price" ? { backgroundColor: "var(--primary)", color: "#fff", borderColor: "var(--primary)" } : { color: "var(--text-muted)", borderColor: "var(--border)" }}>
-                  {form.price === "Connect for Price" ? "✓ " : "+ "}Connect for Price
-                </button>
+                <PriceInput
+                  value={form.price || ""}
+                  priceText={form.price_text || "*"}
+                  onChange={(val) => setForm({ ...form, price: val })}
+                  onPriceTextChange={(text) => setForm({ ...form, price_text: text })}
+                />
               </div>
             </div>
 

@@ -26,7 +26,7 @@ def create_app():
     with app.app_context():
         _import_all_models()
         db.create_all()
-        _run_migrations_or_alembic()
+        _bootstrap_schema()
         _seed_defaults()
 
     _register_blueprints(app)
@@ -140,389 +140,31 @@ def _register_request_logging(app):
         return response
 
 
-def _run_migrations():
-    """Inline migrations — only runs on MySQL. On PostgreSQL, db.create_all() handles everything."""
-    if db.engine.dialect.name != "mysql":
-        return
+def _bootstrap_schema():
+    """Idempotent PostgreSQL schema sync.
+
+    db.create_all() creates missing tables but does NOT add new columns to
+    existing tables, so any column added to the models must also be added here.
+    """
     from sqlalchemy import text
 
     def _safe_execute(sql):
         try:
             db.session.execute(text(sql))
         except Exception:
-            pass
+            db.session.rollback()
+        else:
+            db.session.commit()
 
-    # Add columns to existing tables
-    _safe_execute("ALTER TABLE admins ADD COLUMN role VARCHAR(20) DEFAULT 'admin'")
-    _safe_execute("ALTER TABLE admins ADD COLUMN whatsapp VARCHAR(20) NULL")
-    _safe_execute("ALTER TABLE properties ADD COLUMN uploaded_by INT NULL")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN overlay_opacity INT DEFAULT 40")
-    _safe_execute("ALTER TABLE about_gallery_images ADD COLUMN is_featured TINYINT(1) DEFAULT 0")
-    _safe_execute("ALTER TABLE description_templates ADD COLUMN property_type VARCHAR(50) NULL")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN title_color VARCHAR(20)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN title_align VARCHAR(10)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN title_font_family VARCHAR(100)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN title_font_size INT")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN title_font_style VARCHAR(20)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN title_line_height INT")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN subtitle_color VARCHAR(20)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN subtitle_align VARCHAR(10)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN subtitle_font_family VARCHAR(100)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN subtitle_font_size INT")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN subtitle_font_style VARCHAR(20)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN subtitle_line_height INT")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN button_color VARCHAR(20)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN button_bg_color VARCHAR(20)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN button_align VARCHAR(10)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN button_font_family VARCHAR(100)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN button_font_size INT")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN button_font_style VARCHAR(20)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN content_vertical VARCHAR(10)")
-    _safe_execute("ALTER TABLE hero_slides ADD COLUMN background_color VARCHAR(20)")
-
-    # Create new tables
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS leads (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            property_id INT,
-            name VARCHAR(100) NOT NULL,
-            email VARCHAR(150),
-            mobile VARCHAR(15),
-            source VARCHAR(50) DEFAULT 'website',
-            status INT,
-            assigned_to INT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS lead_statuses (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(50) NOT NULL,
-            color VARCHAR(7) DEFAULT '#3b82f6',
-            sort_order INT DEFAULT 0,
-            is_active BOOLEAN DEFAULT TRUE
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS lead_history (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            lead_id INT,
-            status INT,
-            type VARCHAR(50),
-            remarks TEXT,
-            followup_date DATETIME,
-            created_by INT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
-            INDEX idx_lead_history_lead (lead_id),
-            INDEX idx_lead_history_created (created_at)
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS faqs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            question VARCHAR(500) NOT NULL,
-            answer TEXT NOT NULL,
-            `order` INT DEFAULT 0,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS property_types (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            value VARCHAR(50) NOT NULL,
-            category ENUM('property', 'transaction') NOT NULL,
-            is_active BOOLEAN DEFAULT TRUE,
-            sort_order INT DEFAULT 0,
-            INDEX idx_type_category_active (category, is_active)
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS about_gallery_images (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            image_url VARCHAR(500) NOT NULL,
-            caption VARCHAR(255),
-            sort_order INT DEFAULT 0,
-            is_active BOOLEAN DEFAULT TRUE
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS team_members (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(120) NOT NULL,
-            role VARCHAR(100),
-            photo VARCHAR(255),
-            bio TEXT,
-            email VARCHAR(150),
-            social_links JSON,
-            is_leader BOOLEAN DEFAULT FALSE,
-            is_active BOOLEAN DEFAULT TRUE,
-            sort_order INT DEFAULT 0
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS activity_log (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT,
-            action VARCHAR(100) NOT NULL,
-            module VARCHAR(50),
-            target VARCHAR(255),
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_activity_user (user_id),
-            INDEX idx_activity_module (module),
-            INDEX idx_activity_created (created_at)
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS property_type_fields (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            property_type_value VARCHAR(50) NOT NULL,
-            field_key VARCHAR(50) NOT NULL,
-            field_label VARCHAR(100) NOT NULL,
-            field_label_mr VARCHAR(100),
-            field_label_hi VARCHAR(100),
-            field_type ENUM('chip','select','unit_input') NOT NULL,
-            options JSON,
-            unit_options JSON,
-            placeholder VARCHAR(255),
-            sort_order INT DEFAULT 0,
-            is_active BOOLEAN DEFAULT TRUE,
-            is_required BOOLEAN DEFAULT FALSE,
-            INDEX idx_ptf_type_active (property_type_value, is_active)
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS property_field_values (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            property_id INT NOT NULL,
-            field_key VARCHAR(50) NOT NULL,
-            field_value VARCHAR(500),
-            FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
-            INDEX idx_pfv_property_key (property_id, field_key)
-        ) ENGINE=InnoDB
-    """)
-
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS description_templates (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            category VARCHAR(50) NOT NULL,
-            property_type VARCHAR(50) NULL,
-            template_text TEXT NOT NULL,
-            sort_order INT DEFAULT 0,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_dt_category_active (category, is_active),
-            INDEX idx_dt_type_active (property_type, is_active)
-        ) ENGINE=InnoDB
-    """)
-
-    # Add indexes to existing tables
-    _add_index("properties", "idx_property_status_active", "status, is_active")
-    _add_index("properties", "idx_property_featured", "is_featured")
-    _add_index("properties", "idx_property_location", "location")
-    _add_index("properties", "idx_property_created", "created_at")
-    _add_index("properties", "idx_property_uploaded_by", "uploaded_by")
-    _add_index("properties", "idx_property_price", "price")
-    _add_index("property_images", "idx_property_images_composite", "property_id, `order`")
-    _add_index("leads", "idx_lead_property", "property_id")
-    _add_index("leads", "idx_lead_source", "source")
-    _add_index("leads", "idx_lead_status", "status")
-    _add_index("leads", "idx_lead_created", "created_at")
-
-    # === PropertyContact migration ===
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS property_contacts (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            property_id INT NOT NULL,
-            type VARCHAR(20) NOT NULL,
-            name VARCHAR(100) NOT NULL,
-            email VARCHAR(150) NULL,
-            mobile VARCHAR(20) NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
-            UNIQUE KEY uq_property_contact_type (property_id, type),
-            INDEX idx_pc_property (property_id),
-            INDEX idx_pc_type (type)
-        ) ENGINE=InnoDB
-    """)
-
-    # Migrate owner data from contacts table → property_contacts(type='owner')
-    _safe_execute("""
-        INSERT IGNORE INTO property_contacts (property_id, type, name, email, mobile, created_at)
-        SELECT c.property_id, 'owner', c.name, c.email, c.mobile, c.created_at
-        FROM contacts c
-        WHERE c.property_id IS NOT NULL
-    """)
-
-    # Migrate creator data from properties.created_by_* → property_contacts(type='createdby')
-    _safe_execute("""
-        INSERT IGNORE INTO property_contacts (property_id, type, name, email, mobile)
-        SELECT p.id, 'createdby', p.created_by_name, p.created_by_email, p.created_by_mobile
-        FROM properties p
-        WHERE p.created_by_name IS NOT NULL AND p.created_by_name != ''
-    """)
-
-    # Drop properties.created_by_* columns
-    _safe_execute("ALTER TABLE properties DROP COLUMN created_by_name")
-    _safe_execute("ALTER TABLE properties DROP COLUMN created_by_email")
-    _safe_execute("ALTER TABLE properties DROP COLUMN created_by_mobile")
-
-    # Drop old contacts table
-    _safe_execute("DROP TABLE IF EXISTS contacts")
-
-    # Normalize price: NULL = "Connect for Price" / "Price on Request"
-    _safe_execute("UPDATE properties SET price = NULL WHERE price = 0")
-
-    # Rename "Lost" status to "Not Interested"
-    _safe_execute("UPDATE lead_statuses SET name = 'Not Interested' WHERE name = 'Lost'")
-
-    # Add is_read to contactus
-    _safe_execute("ALTER TABLE contactus ADD COLUMN is_read TINYINT(1) DEFAULT 0 NOT NULL")
-    _safe_execute("UPDATE contactus SET is_read = 1")
-
-    # Seed auto_assign_leads setting (default off)
-    from models.setting_model import Setting
-    if not Setting.query.filter_by(skey="auto_assign_leads").first():
-        db.session.add(Setting(skey="auto_assign_leads", svalue="false"))
-
-    # === Analytics 2.0: search_logs, banner_clicks, page_visits UTM columns ===
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS search_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            location VARCHAR(200),
-            property_type VARCHAR(100),
-            transaction_type VARCHAR(50),
-            min_price INT,
-            max_price INT,
-            visitor_ip VARCHAR(100),
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_sl_location (location),
-            INDEX idx_sl_type (property_type),
-            INDEX idx_sl_budget (min_price, max_price),
-            INDEX idx_sl_created (created_at)
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS banner_clicks (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            slide_id INT,
-            slide_title VARCHAR(300),
-            button_link VARCHAR(500),
-            page_url VARCHAR(500),
-            visitor_ip VARCHAR(100),
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_bc_slide (slide_id),
-            INDEX idx_bc_created (created_at)
-        ) ENGINE=InnoDB
-    """)
-    _safe_execute("ALTER TABLE page_visits ADD COLUMN referrer VARCHAR(500) NULL")
-    _safe_execute("ALTER TABLE page_visits ADD COLUMN utm_source VARCHAR(100) NULL")
-    _safe_execute("ALTER TABLE page_visits ADD COLUMN utm_medium VARCHAR(100) NULL")
-    _safe_execute("ALTER TABLE page_visits ADD COLUMN utm_campaign VARCHAR(200) NULL")
-    _add_index("page_visits", "idx_pv_utm_source", "utm_source")
-    _add_index("page_visits", "idx_pv_created", "created_at")
-
-    # === Password Reset Requests ===
-    _safe_execute("""
-        CREATE TABLE IF NOT EXISTS password_reset_requests (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_identifier VARCHAR(120) NOT NULL,
-            user_name VARCHAR(120) NULL,
-            status VARCHAR(20) DEFAULT 'pending',
-            admin_note TEXT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            completed_at DATETIME NULL,
-            INDEX idx_prr_status (status),
-            INDEX idx_prr_identifier (user_identifier),
-            INDEX idx_prr_created (created_at)
-        ) ENGINE=InnoDB
-    """)
-    # Rename column for tables that already have user_email
-    _safe_execute("ALTER TABLE password_reset_requests CHANGE COLUMN user_email user_identifier VARCHAR(120) NOT NULL")
-
-    # Remove createdby contacts — we only save owner contact info now
-    _safe_execute("DELETE FROM property_contacts WHERE type = 'createdby'")
-
-    # Remove test/dummy hero slides
-    _safe_execute("DELETE FROM hero_slides WHERE title LIKE '%test text%' OR subtitle LIKE '%testing text%'")
-
-    # Add user_id column to admins + backfill existing rows
-    _safe_execute("ALTER TABLE admins ADD COLUMN user_id VARCHAR(20) UNIQUE")
-    _safe_execute("""
-        UPDATE admins SET user_id = CONCAT('EMP-', LPAD(id, 3, '0'))
-        WHERE user_id IS NULL
-    """)
-
-    # Add lead pipeline fields + backfill from old statuses
-    _safe_execute("ALTER TABLE leads ADD COLUMN stage VARCHAR(20) DEFAULT 'NEW'")
-    _safe_execute("ALTER TABLE leads ADD COLUMN lead_status VARCHAR(20) DEFAULT 'ACTIVE'")
-    _safe_execute("ALTER TABLE leads ADD COLUMN rejection_reason VARCHAR(100)")
-    _safe_execute("ALTER TABLE leads ADD COLUMN follow_up_at DATETIME")
-    _safe_execute("ALTER TABLE leads ADD COLUMN archived_at DATETIME")
-    _safe_execute("ALTER TABLE leads ADD COLUMN notes TEXT")
-    _safe_execute("""
-        UPDATE leads l
-        JOIN lead_statuses ls ON l.status = ls.id
-        SET l.stage = CASE
-            WHEN ls.id IN (1, 2) THEN 'NEW'
-            WHEN ls.id = 3 THEN 'CONTACTED'
-            WHEN ls.id = 4 THEN 'SITE_VISIT'
-            WHEN ls.id = 5 THEN 'NEGOTIATION'
-            WHEN ls.id = 6 THEN 'CLOSED'
-            WHEN ls.id = 7 THEN 'CLOSED'
-            ELSE 'NEW'
-        END,
-        l.lead_status = CASE
-            WHEN ls.id = 6 THEN 'WON'
-            WHEN ls.id = 7 THEN 'NOT_INTERESTED'
-            ELSE 'ACTIVE'
-        END,
-        l.archived_at = CASE WHEN ls.id = 7 THEN NOW() ELSE NULL END
-    """)
-    _safe_execute("""
-        UPDATE leads l
-        JOIN lead_history lh ON lh.lead_id = l.id AND lh.followup_date IS NOT NULL
-        SET l.follow_up_at = lh.followup_date
-        WHERE l.follow_up_at IS NULL
-    """)
-
-    db.session.commit()
-
-
-def _run_migrations_or_alembic():
-    """Run inline migrations for idempotent schema additions, then stamp Alembic head."""
-    _run_migrations()
-    if db.engine.dialect.name != "mysql":
-        return
-    from alembic.config import Config as AlembicConfig
-    from alembic import command
-    alembic_cfg = AlembicConfig(os.path.join(os.path.dirname(os.path.abspath(__file__)), "alembic.ini"))
-    try:
-        from sqlalchemy import inspect
-        inspector = inspect(db.engine)
-        if "alembic_version" not in inspector.get_table_names():
-            command.stamp(alembic_cfg, "head")
-            logger.info("Inline migrations applied and stamped with Alembic head")
-    except Exception as exc:
-        logger.warning("Alembic stamp failed: %s", exc)
-
-
-def _add_index(table, name, columns):
-    try:
-        from sqlalchemy import text
-        db.session.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({columns})"))
-    except Exception:
-        pass
+    # Price display variants column (e.g. "*", "onwards", "Connect for Price")
+    _safe_execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS price_text VARCHAR(50) DEFAULT '*'")
+    # Convert floor / total-floor / area fields to free-text
+    _safe_execute("UPDATE property_type_fields SET field_type='text' WHERE field_key IN ('floor_level','total_floors','area_size')")
 
 
 def _seed_defaults():
     """Seed default property types, lead statuses, admin, and field definitions."""
-    from models.models import PropertyType, LeadStatus, Admin, PropertyTypeField, DescriptionTemplate
+    from models.models import PropertyType, LeadStatus, Admin, PropertyTypeField, DescriptionTemplate, PresetFeature
     from models.setting_model import Setting
     import bcrypt
     import json as _json
@@ -580,6 +222,9 @@ def _seed_defaults():
     elif DescriptionTemplate.query.filter(DescriptionTemplate.property_type.isnot(None)).count() == 0:
         _seed_description_templates()
 
+    if PresetFeature.query.count() == 0:
+        _seed_preset_features()
+
     _seed_page_settings()
 
     db.session.commit()
@@ -598,14 +243,14 @@ def _seed_type_fields():
         ("flat", "bathrooms", "Bathrooms", "बाथरूम", "बाथरूम", "chip", ["1", "2", "3", "4"], None, None, 2, True),
         ("flat", "furnishing", "Furnishing", "फर्निशिंग", "फर्निशिंग", "select", ["Unfurnished", "Semi-Furnished", "Fully Furnished"], None, None, 3, False),
         ("flat", "facing", "Facing", "दिशा", "दिशा", "chip", facing_short, None, None, 4, False),
-        ("flat", "floor_level", "Floor Level", "मजला", "मंज़िल", "chip", ["Ground", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10+"], None, None, 5, False),
-        ("flat", "total_floors", "Total Floors", "एकूण मजले", "कुल मंज़िलें", "chip", ["1", "2", "3", "4", "5", "10+", "15+", "20+"], None, None, 6, False),
-        ("flat", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "unit_input", None, ["Sq. Ft.", "Sq. Yards"], None, 7, True),
+        ("flat", "floor_level", "Floor Level", "मजला", "मंज़िल", "text", ["Ground", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10+"], None, "e.g. Ground, 3", 5, False),
+        ("flat", "total_floors", "Total Floors", "एकूण मजले", "कुल मंज़िलें", "text", ["1", "2", "3", "4", "5", "10+", "15+", "20+"], None, "e.g. 5, 10+", 6, False),
+        ("flat", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "text", None, ["Sq. Ft.", "Sq. Yards"], "e.g. 1200 - 5000 Sq. Ft.", 7, True),
         ("flat", "lift", "Lift", "लिफ्ट", "लिफ्ट", "chip", ["Yes", "No"], None, None, 8, False),
         ("flat", "parking", "Parking", "पार्किंग", "पार्किंग", "chip", ["Open", "Covered", "None"], None, None, 9, False),
 
         # ── PLOT / LAND ──
-        ("plot", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "unit_input", None, ["Sq. Ft.", "Sq. Yards", "Acres"], None, 1, True),
+        ("plot", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "text", None, ["Sq. Ft.", "Sq. Yards", "Acres"], "e.g. 5000 - 10000 Sq. Ft.", 1, True),
         ("plot", "facing", "Facing", "दिशा", "दिशा", "chip", facing_opts, None, None, 2, False),
         ("plot", "na_approved", "NA Approved", "NA मंजूर", "NA स्वीकृत", "chip", ["Yes", "No"], None, None, 3, False),
         ("plot", "gated_community", "Gated Community", "गेटेड कम्युनिटी", "गेटेड कम्युनिटी", "chip", ["Yes", "No"], None, None, 4, False),
@@ -616,17 +261,17 @@ def _seed_type_fields():
         ("house", "bathrooms", "Bathrooms", "बाथरूम", "बाथरूम", "chip", ["1", "2", "3", "4"], None, None, 2, True),
         ("house", "furnishing", "Furnishing", "फर्निशिंग", "फर्निशिंग", "select", ["Unfurnished", "Semi-Furnished", "Fully Furnished"], None, None, 3, False),
         ("house", "facing", "Facing", "दिशा", "दिशा", "chip", facing_short, None, None, 4, False),
-        ("house", "total_floors", "Total Floors", "एकूण मजले", "कुल मंज़िलें", "chip", ["1", "2", "3"], None, None, 5, False),
-        ("house", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "unit_input", None, ["Sq. Ft.", "Sq. Yards", "Acres"], None, 6, True),
+        ("house", "total_floors", "Total Floors", "एकूण मजले", "कुल मंज़िलें", "text", ["1", "2", "3"], None, "e.g. 2", 5, False),
+        ("house", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "text", None, ["Sq. Ft.", "Sq. Yards", "Acres"], "e.g. 1500 - 3000 Sq. Ft.", 6, True),
         ("house", "parking", "Parking", "पार्किंग", "पार्किंग", "chip", ["Open", "Covered", "None"], None, None, 7, False),
         ("house", "gated_community", "Gated Community", "गेटेड कम्युनिटी", "गेटेड कम्युनिटी", "chip", ["Yes", "No"], None, None, 8, False),
         ("house", "boundary_wall", "Boundary Wall", "भिंतीची रचना", "बाउंड्री वॉल", "chip", ["Yes", "No"], None, None, 9, False),
 
         # ── COMMERCIAL ──
-        ("commercial", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "unit_input", None, ["Sq. Ft.", "Sq. Yards"], None, 1, True),
+        ("commercial", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "text", None, ["Sq. Ft.", "Sq. Yards"], "e.g. 2000 - 8000 Sq. Ft.", 1, True),
         ("commercial", "furnishing", "Furnishing", "फर्निशिंग", "फर्निशिंग", "select", ["Unfurnished", "Semi-Furnished", "Fully Furnished"], None, None, 2, False),
         ("commercial", "facing", "Facing", "दिशा", "दिशा", "chip", facing_short, None, None, 3, False),
-        ("commercial", "floor_level", "Floor Level", "मजला", "मंज़िल", "chip", ["Ground", "1", "2", "3"], None, None, 4, False),
+        ("commercial", "floor_level", "Floor Level", "मजला", "मंज़िल", "text", ["Ground", "1", "2", "3"], None, "e.g. Ground, 2", 4, False),
         ("commercial", "parking", "Parking", "पार्किंग", "पार्किंग", "chip", ["Open", "Covered", "None"], None, None, 5, False),
     ]
 
@@ -637,6 +282,34 @@ def _seed_type_fields():
             options=opts, unit_options=uopts, placeholder=ph,
             sort_order=order, is_active=True, is_required=req,
         ))
+
+
+def _seed_preset_features():
+    """Seed default preset features shown as chips on the property forms."""
+    from models.models import PresetFeature
+
+    features = [
+        ("Lift", "Lift facility available in the building."),
+        ("Parking", "Dedicated parking space available."),
+        ("Gated Community", "Gated community with security and amenities."),
+        ("Power Backup", "Power backup available during outages."),
+        ("Water Supply", "24x7 water supply and storage facility."),
+        ("Gym", "Fully equipped gymnasium for residents."),
+        ("Clubhouse", "Clubhouse with indoor games and lounge."),
+        ("Swimming Pool", "Swimming pool available for residents."),
+        ("Play Area", "Children's play area within the complex."),
+        ("Garden", "Landscaped garden and green surroundings."),
+        ("Security", "24x7 security with CCTV surveillance."),
+        ("Fire Safety", "Fire safety systems installed."),
+        ("Solar Panels", "Solar panels installed for energy efficiency."),
+        ("Rain Water Harvesting", "Rain water harvesting system in place."),
+        ("EV Charging", "EV charging points available."),
+        ("Visitor Parking", "Dedicated visitor parking."),
+        ("Balcony", "Balcony with scenic views."),
+        ("Modular Kitchen", "Modular kitchen with premium fittings."),
+    ]
+    for idx, (label, sentence) in enumerate(features, start=1):
+        db.session.add(PresetFeature(label=label, sentence=sentence, sort_order=idx, is_active=True))
 
 
 def _seed_description_templates():

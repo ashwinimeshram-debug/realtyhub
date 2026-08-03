@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import API, { backendAssetUrl, encodePropertyId } from "@/lib/api";
+import { formatPriceDisplay } from "@/lib/priceFormat";
 import DOMPurify from "dompurify";
 import SearchBar from "@/components/SearchBar";
 import SectionContent from "@/components/SectionContent";
@@ -214,9 +215,7 @@ function FeaturedSection({ featured, loading, title, subtitle, align }: any) {
                 <div className="p-6">
                   <h3 className="font-semibold text-lg text-gray-800">{p.title || "No Title"}</h3>
                   <p className="font-bold mt-1 text-base" style={{ color: "var(--primary)" }}>
-                    {p.price != null && Number(p.price) > 0
-                      ? `₹ ${Number(p.price).toLocaleString("en-IN")}`
-                      : "Price on Request"}
+                    {formatPriceDisplay(p.price, p.price_text)}
                   </p>
                   <p className="text-gray-500 text-sm mt-1">{p.location || ""}</p>
                   <a href={`/property/${encodePropertyId(p.id)}`} className="mt-3 inline-block text-sm font-medium" style={{ color: "var(--primary)" }}>

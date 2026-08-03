@@ -6,6 +6,7 @@ import { useToast } from "@/components/Toast";
 import { useParams } from "next/navigation";
 import ImageSlider from "@/components/ImageSlider";
 import Link from "next/link";
+import { formatPriceDisplay } from "@/lib/priceFormat";
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -100,9 +101,7 @@ export default function PropertyDetail() {
             <h1 className="text-2xl font-bold">{property.title}</h1>
 
             <p className="text-xl font-semibold mt-2" style={{ color: "var(--primary)" }}>
-              {property.price != null && Number(property.price) > 0
-                ? `₹ ${Number(property.price).toLocaleString("en-IN")}`
-                : "Price on Request"}
+              {formatPriceDisplay(property.price, property.price_text)}
             </p>
 
             <p className="text-gray-500 mt-2">
@@ -176,9 +175,7 @@ export default function PropertyDetail() {
               <>
                 <h3 className="text-xl font-bold mb-1">Interested in this property?</h3>
                 <p className="text-gray-500 text-sm mb-5">
-                  {property.title} — {property.price != null && Number(property.price) > 0
-                    ? `₹${Number(property.price).toLocaleString("en-IN")}`
-                    : "Price on Request"}
+                  {property.title} — {formatPriceDisplay(property.price, property.price_text)}
                 </p>
 
                 <div className="space-y-3">

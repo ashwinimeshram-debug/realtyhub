@@ -61,9 +61,12 @@ def submit_property():
 
     try:
         price = _parse_price(data.get("price"))
+        price_text = (data.get("price_text") or "").strip() or "*"
+        if price_text.lower() in ("connect for price", "price on request"):
+            price = None
         prop = Property(
             title=data.get("title"), description=data.get("description"),
-            price=price, location=data.get("location"),
+            price=price, price_text=price_text, location=data.get("location"),
             transaction_type=data.get("transaction_type"),
             property_type=data.get("property_type"),
             status="pending", is_active=False,
@@ -197,7 +200,7 @@ def get_properties():
     for p in properties:
         result.append({
             "id": p.id, "listing_id": p.listing_id, "title": p.title,
-            "price": float(p.price) if p.price is not None else None, "location": p.location,
+            "price": float(p.price) if p.price is not None else None, "price_text": p.price_text or "*", "location": p.location,
             "is_featured": p.is_featured, "is_verified": p.is_verified,
             "property_type": p.property_type, "transaction_type": p.transaction_type,
             "images": [img.image_url for img in p.images],
@@ -219,7 +222,7 @@ def get_property_detail(id):
     return jsonify({
         "id": prop.id, "listing_id": prop.listing_id, "title": prop.title,
         "description": prop.description, "price": float(prop.price) if prop.price is not None else None,
-        "location": prop.location, "transaction_type": prop.transaction_type,
+        "price_text": prop.price_text or "*", "location": prop.location, "transaction_type": prop.transaction_type,
         "property_type": prop.property_type, "is_featured": prop.is_featured,
         "is_verified": prop.is_verified, "images": [img.image_url for img in prop.images],
         "owner_name": owner_pc.name if owner_pc else None,

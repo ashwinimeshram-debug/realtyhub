@@ -21,21 +21,6 @@ const FONT_FAMILIES = [
   { value: "Georgia, serif", label: "Georgia" },
   { value: "'Times New Roman', serif", label: "Times New Roman" },
   { value: "'Courier New', monospace", label: "Courier New" },
-
-  /* Google Fonts */
-  { value: "'Inter', sans-serif", label: "Inter" },
-  { value: "'Playfair Display', serif", label: "Playfair Display" },
-  { value: "'Poppins', sans-serif", label: "Poppins" },
-  { value: "'Roboto', sans-serif", label: "Roboto" },
-  { value: "'Lato', sans-serif", label: "Lato" },
-  { value: "'Merriweather', serif", label: "Merriweather" },
-  { value: "'Montserrat', sans-serif", label: "Montserrat" },
-  { value: "'Oswald', sans-serif", label: "Oswald" },
-  { value: "'Raleway', sans-serif", label: "Raleway" },
-  { value: "'Nunito', sans-serif", label: "Nunito" },
-  { value: "'Dancing Script', cursive", label: "Dancing Script" },
-  { value: "'Cormorant Garamond', serif", label: "Cormorant Garamond" },
-  { value: "'Josefin Sans', sans-serif", label: "Josefin Sans" },
 ];
 
 const FONT_STYLES = [

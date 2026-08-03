@@ -59,3 +59,20 @@ export function priceInWords(val: string): string {
   if (isNaN(n) || n === 0) return "";
   return numberToWordsIndian(n) + " Rupees";
 }
+
+export const PRICE_TEXT_OPTIONS = ["*", "onwards", "Connect for Price", "Price on Request"] as const;
+
+export function isPriceRequestOnly(priceText: string): boolean {
+  const t = (priceText || "*").toLowerCase();
+  return t === "connect for price" || t === "price on request";
+}
+
+export function formatPriceDisplay(price: number | null | undefined, priceText?: string | null): string {
+  const text = (priceText || "*").trim();
+  if (isPriceRequestOnly(text)) return text;
+  if (price != null && Number(price) > 0) {
+    const formatted = Number(price).toLocaleString("en-IN");
+    return text === "*" || text === "" ? `₹ ${formatted}*` : `₹ ${formatted} ${text}`;
+  }
+  return "Price on Request";
+}

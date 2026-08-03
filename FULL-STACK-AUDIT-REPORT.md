@@ -260,7 +260,7 @@ The application has a solid foundation with good architecture choices (JWT cooki
 - **Lines:** 413, 533, 694, 723
 
 #### B24. MySQL-Specific `date_format` Not Portable
-- **Lines:** 1226, 1253, 1259, 1270
+- **Status:** Resolved — project is now PostgreSQL-only; no MySQL-specific SQL remains.
 
 #### B25. Audit Log Query Runs Inline Inside `jsonify()` on Every Property GET
 - **Lines:** 313–317
@@ -422,8 +422,7 @@ The application has a solid foundation with good architecture choices (JWT cooki
 
 #### D8. `pool_recycle: 300` — Aggressive Connection Churn
 - **Location:** `config.py:68`
-- **Impact:** MySQL default `wait_timeout` is 8 hours. Recycling every 5 minutes creates unnecessary connection churn and may hit MySQL connection rate limits under load.
-- **Fix:** Increase to `3600` (1 hour).
+- **Status:** Fixed — `pool_recycle` is now `3600`.
 
 ### 🔵 LOW
 
@@ -508,7 +507,7 @@ The application has a solid foundation with good architecture choices (JWT cooki
 ### Final Pre-flight
 - [ ] Remove all `.env` files from version control and add to `.gitignore`
 - [ ] Ensure `JWT_COOKIE_SECURE=True` in production
-- [ ] Run Alembic migrations (replace `_run_migrations()` raw SQL with proper migration system)
+- [x] Confirm PostgreSQL-only stack (MySQL/alembic removed; `_bootstrap_schema()` in `app.py` keeps schema in sync)
 - [ ] Set `NEXT_PUBLIC_API_BASE_URL` to production URL in deployment environment
 - [ ] Enable TypeScript `strict: true` in `tsconfig.json`
 - [ ] Set `FLASK_ENV=production` in production environment

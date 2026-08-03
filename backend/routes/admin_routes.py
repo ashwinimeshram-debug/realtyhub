@@ -313,6 +313,7 @@ def get_property(id):
         "title": prop.title,
         "description": prop.description,
         "price": float(prop.price) if prop.price is not None else None,
+        "price_text": prop.price_text or "*",
         "location": prop.location,
         "status": prop.status,
         "is_active": prop.is_active,
@@ -355,7 +356,10 @@ def create_property():
         return jsonify({"error": "Title is required"}), 400
 
     price_raw = (data.get("price") or "").strip()
-    if price_raw and price_raw.lower() not in ("connect for price", ""):
+    price_text = (data.get("price_text") or "").strip() or "*"
+    if price_text.lower() in ("connect for price", "price on request"):
+        price_val = None
+    elif price_raw and price_raw.lower() not in ("connect for price", ""):
         import re as _re
         try:
             _cleaned = _re.sub(r'[₹$,]', '', price_raw)
@@ -380,6 +384,7 @@ def create_property():
         title=title,
         description=data.get("description", ""),
         price=price_val,
+        price_text=price_text,
         location=data.get("location", ""),
         transaction_type=data.get("transaction_type", "sell"),
         property_type=data.get("property_type", "flat"),
@@ -522,7 +527,11 @@ def update_property(id):
 
     if "price" in data:
         price_raw = (data.get("price") or "").strip()
-        if price_raw and price_raw.lower() not in ("connect for price", ""):
+        price_text = (data.get("price_text") or "").strip() or "*"
+        prop.price_text = price_text
+        if price_text.lower() in ("connect for price", "price on request"):
+            prop.price = None
+        elif price_raw and price_raw.lower() not in ("connect for price", ""):
             import re as _re
             try:
                 _cleaned = _re.sub(r'[₹$,]', '', price_raw)

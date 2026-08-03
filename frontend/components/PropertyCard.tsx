@@ -1,5 +1,6 @@
 import ImageSlider from "./ImageSlider";
 import { encodePropertyId } from "@/lib/api";
+import { formatPriceDisplay } from "@/lib/priceFormat";
 
 export default function PropertyCard({ p }: any) {
   return (
@@ -20,9 +21,7 @@ export default function PropertyCard({ p }: any) {
 
         {/* PRICE */}
         <p className="font-bold mt-1 min-h-[24px]" style={{ color: "var(--primary)" }}>
-          {p.price != null && Number(p.price) > 0
-            ? `₹ ${Number(p.price).toLocaleString("en-IN")}`
-            : "Price on Request"}
+          {formatPriceDisplay(p.price, p.price_text)}
         </p>
 
         {/* LOCATION */}
