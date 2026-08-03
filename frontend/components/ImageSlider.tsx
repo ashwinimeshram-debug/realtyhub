@@ -32,9 +32,7 @@ export default function ImageSlider({
         <img
           src={backendAssetUrl(images[index])}
           alt="Property"
-          className={`w-full object-cover object-top ${
-            small ? "h-[180px]" : "h-[400px] md:h-[500px]"
-          }`}
+          className={`w-full ${small ? "h-[180px] object-cover object-top" : "h-[400px] md:h-[500px] object-contain bg-gray-50"}`}
         />
 
         {/* PHOTO COUNT BADGE */}

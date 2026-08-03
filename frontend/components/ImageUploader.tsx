@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { processImages } from "@/lib/imageProcessor";
+import { compressImagesToWebP } from "@/lib/imageProcessor";
 import { backendAssetUrl } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { DndContext, closestCenter } from "@dnd-kit/core";
@@ -121,7 +121,7 @@ export default function ImageUploader({
     if (!e.target.files || e.target.files.length === 0) return;
     setProcessing(true);
     try {
-      const processed = await processImages(Array.from(e.target.files), { preset: "card" });
+      const processed = await compressImagesToWebP(Array.from(e.target.files));
       onFilesChange([...files, ...processed]);
     } catch {
       toast("Image processing failed", "error");
@@ -158,7 +158,7 @@ export default function ImageUploader({
     <div>
       <div className="relative h-[340px] md:h-[440px] bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden">
         {totalCount > 0 ? (
-          <img src={allItems[activeIndex]?.url} alt="Selected" className="w-full h-full object-cover" />
+          <img src={allItems[activeIndex]?.url} alt="Selected" className="w-full h-full object-contain bg-gray-50" />
         ) : (
           <div className="text-center px-4">
             <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a1.5 1.5 0 001.5-1.5V5.25a1.5 1.5 0 00-1.5-1.5H3.75a1.5 1.5 0 00-1.5 1.5v14.25a1.5 1.5 0 001.5 1.5z" /></svg>
@@ -202,7 +202,7 @@ export default function ImageUploader({
       <div className="mt-4">
         <input type="file" multiple accept="image/*" className="mt-4" disabled={disabled || processing} onChange={handleFileInput} />
         <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
-          {processing ? "Processing images..." : "Click to upload photos here · PNG, JPG, or WEBP up to 10MB"}
+          {processing ? "Compressing images to WebP..." : "Click to upload photos here · PNG, JPG, or WEBP up to 10MB"}
         </p>
       </div>
       {totalCount > 0 && (

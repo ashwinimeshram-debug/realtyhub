@@ -187,6 +187,63 @@ export async function processImages(
 }
 
 /**
+ * Compress a single image to WebP WITHOUT cropping.
+ * The full image is preserved (aspect ratio kept) and only downscaled
+ * when its longest edge exceeds `maxSize`. Never crops or stretches.
+ */
+export async function compressToWebP(
+  file: File,
+  options: { maxSize?: number; quality?: number } = {},
+  onProgress: ProgressCallback = DEFAULT_PROGRESS
+): Promise<File> {
+  const maxSize = options.maxSize ?? 1600;
+  const quality = options.quality ?? 0.82;
+
+  onProgress("Optimizing image locally...");
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(objectUrl);
+    onProgress("Encoding as WebP...");
+
+    const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
+    const outW = Math.max(1, Math.round(img.naturalWidth * scale));
+    const outH = Math.max(1, Math.round(img.naturalHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0, outW, outH);
+
+    const result = await canvasToFile(canvas, file.name, quality);
+    const ratio = ((1 - result.size / file.size) * 100).toFixed(0);
+    onProgress(`Done — ${result.size < 1024 ? result.size : `${(result.size / 1024).toFixed(0)}KB`} (${ratio}% smaller)`);
+
+    return result;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+/**
+ * Compress multiple files to WebP without cropping.
+ * Returns File[] in the same order as input.
+ */
+export async function compressImagesToWebP(
+  files: File[],
+  options: { maxSize?: number; quality?: number } = {},
+  onProgress: ProgressCallback = DEFAULT_PROGRESS
+): Promise<File[]> {
+  const results: File[] = [];
+  for (let i = 0; i < files.length; i++) {
+    onProgress(`[${i + 1}/${files.length}] Processing...`);
+    results.push(await compressToWebP(files[i], options, onProgress));
+  }
+  return results;
+}
+
+/**
  * Attach to an <input type="file"> element.
  */
 export function attachImageProcessor(
