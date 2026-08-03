@@ -44,7 +44,7 @@ export default function FeaturedCarousel({
         >
           {featured.map((p: any) => (
             <SwiperSlide key={p.id}>
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden card-hover">
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden card-hover flex flex-col h-full">
                 <div className="relative">
                   {p.images && p.images.length > 0 ? (
                     <div className="relative aspect-[16/10] w-full overflow-hidden">
@@ -63,7 +63,7 @@ export default function FeaturedCarousel({
                     <span className="absolute top-2 left-2 bg-yellow-400 text-xs px-2 py-1 rounded font-medium">Featured</span>
                   )}
                 </div>
-                <div className="p-6">
+                <div className="p-6 flex flex-col flex-1">
                   <h3 className="font-semibold text-lg text-gray-800">{p.title || "No Title"}</h3>
                   <p className="font-bold mt-1 text-base" style={{ color: "var(--primary)" }}>
                     {formatPriceDisplay(p.price, p.price_text)}

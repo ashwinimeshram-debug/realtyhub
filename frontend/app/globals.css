@@ -233,6 +233,19 @@ select.form-input {
 }
 
 /* ─── SWIPER ─── */
+.featured-swiper .swiper-wrapper,
+.testimonials-swiper .swiper-wrapper {
+  align-items: stretch;
+}
+.featured-swiper .swiper-slide,
+.testimonials-swiper .swiper-slide {
+  height: auto;
+  display: flex;
+}
+.featured-swiper .swiper-slide > *,
+.testimonials-swiper .swiper-slide > * {
+  width: 100%;
+}
 .testimonials-swiper .swiper-pagination-bullet {
   background: var(--primary);
   opacity: 0.3;
