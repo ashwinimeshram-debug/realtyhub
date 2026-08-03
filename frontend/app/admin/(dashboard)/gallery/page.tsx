@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import API, { backendAssetUrl } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/hooks/useConfirm";
+import ImageCropperTool from "@/components/admin/ImageCropperTool";
 
 
 interface GalleryFile {
@@ -56,6 +57,8 @@ export default function GalleryPage() {
   const [currentFolder, setCurrentFolder] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
+  const [cropTarget, setCropTarget] = useState<GalleryFile | null>(null);
+  const [cropping, setCropping] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -180,6 +183,24 @@ export default function GalleryPage() {
   };
 
   const allSelected = visibleFiles.length > 0 && selectedUrls.size === visibleFiles.length;
+
+  const handleCropConfirm = async (file: File) => {
+    if (!cropTarget) return;
+    setCropping(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("old_url", cropTarget.url);
+    try {
+      const res = await API.post("/admin/gallery/file/crop", formData, { headers: { "Content-Type": "multipart/form-data" } });
+      toast(`Cropped → ${res.data.new_url.split("/").pop()}`, "success");
+      setCropTarget(null);
+      loadGallery();
+    } catch (err: any) {
+      toast(err?.response?.data?.error || "Failed to crop image", "error");
+    } finally {
+      setCropping(false);
+    }
+  };
 
   const fileCount = visibleFiles.length;
   const folderCount = visibleFolders.length;
@@ -423,6 +444,15 @@ export default function GalleryPage() {
               </div>
               <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition">
                 <button
+                  onClick={() => { setCropTarget(f); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }}
+                  className="p-1.5 bg-white/80 hover:bg-white border border-gray-200 rounded-lg text-gray-500 hover:text-[var(--primary)]"
+                  title="Crop"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 9.5V6a1 1 0 011-1h3.5M18 14.5V18a1 1 0 01-1 1h-3.5M9.5 6H18a1 1 0 011 1v8.5M6 9.5h8.5a1 1 0 011 1V19" />
+                  </svg>
+                </button>
+                <button
                   onClick={() => handleRename(f.url, f.filename)}
                   className="p-1.5 bg-white/80 hover:bg-white border border-gray-200 rounded-lg text-gray-500 hover:text-blue-600"
                   title="Rename"
@@ -511,6 +541,15 @@ export default function GalleryPage() {
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                       <button
+                        onClick={() => { setCropTarget(f); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }}
+                        className="p-1.5 text-gray-400 hover:text-[var(--primary)]"
+                        title="Crop"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 9.5V6a1 1 0 011-1h3.5M18 14.5V18a1 1 0 01-1 1h-3.5M9.5 6H18a1 1 0 011 1v8.5M6 9.5h8.5a1 1 0 011 1V19" />
+                        </svg>
+                      </button>
+                      <button
                         onClick={() => handleRename(f.url, f.filename)}
                         className="p-1.5 text-gray-400 hover:text-blue-600"
                         title="Rename"
@@ -534,6 +573,33 @@ export default function GalleryPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* CROP TOOL */}
+      {cropTarget && (
+        <div className="mt-6 border-t border-gray-200 pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800">Crop Image</h2>
+              <p className="text-sm text-gray-500 mt-1">Cropping: {cropTarget.filename}</p>
+            </div>
+            <button
+              onClick={() => setCropTarget(null)}
+              disabled={cropping}
+              className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+          <ImageCropperTool
+            initialSrc={backendAssetUrl(cropTarget.url)}
+            filenameHint={cropTarget.filename}
+            defaultW={1200}
+            defaultH={800}
+            onConfirm={handleCropConfirm}
+          />
+          {cropping && <p className="text-sm text-gray-500 mt-3">Uploading cropped image...</p>}
         </div>
       )}
 

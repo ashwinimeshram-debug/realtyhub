@@ -304,6 +304,63 @@ def rename_gallery_file():
     return jsonify({"message": "File renamed", "old_url": old_url, "new_url": new_url, "updates": updates})
 
 
+@gallery_bp.route("/admin/gallery/file/crop", methods=["POST"])
+@jwt_required()
+def crop_gallery_file():
+    old_url = request.form.get("old_url", "").strip()
+    file = request.files.get("file")
+    if not old_url or not file:
+        return jsonify({"error": "old_url and file are required"}), 400
+
+    old_path = _path_from_url(old_url)
+    if not old_path:
+        return jsonify({"error": "Could not parse old_url"}), 400
+
+    max_size = current_app.config.get("MAX_FILE_SIZE", 10 * 1024 * 1024)
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > max_size:
+        return jsonify({"error": "File too large (max 10MB)"}), 400
+
+    ext = old_path.rsplit(".", 1)[-1].lower() if "." in old_path else ""
+    if not _allowed_file(ext):
+        return jsonify({"error": "Cannot crop this file type"}), 400
+
+    folder = os.path.dirname(old_path)
+    base = os.path.basename(old_path).rsplit(".", 1)[0]
+    new_name = f"{time.time_ns()}_{base}.webp"
+    new_path = f"{folder}/{new_name}" if folder else new_name
+
+    try:
+        new_url = upload_file(file, new_path)
+    except Exception:
+        return jsonify({"error": "Upload failed"}), 500
+
+    try:
+        delete_file(old_path)
+    except Exception:
+        pass
+
+    from models.models import PropertyImage, AboutGalleryImage, Admin, TeamMember
+    from models.cms_models import HeroSlide, Service
+    from models.testimonial_model import Testimonial
+
+    updates = 0
+    for model, col in [
+        (HeroSlide, "image"), (Service, "image"), (Testimonial, "image"),
+        (AboutGalleryImage, "image_url"), (PropertyImage, "image_url"),
+        (TeamMember, "photo"), (Admin, "profile_image"),
+    ]:
+        records = model.query.filter(getattr(model, col) == old_url).all()
+        for r in records:
+            setattr(r, col, new_url)
+            updates += 1
+    db.session.commit()
+
+    return jsonify({"message": "File cropped", "old_url": old_url, "new_url": new_url, "updates": updates})
+
+
 @gallery_bp.route("/admin/gallery/file", methods=["DELETE"])
 @jwt_required()
 def delete_gallery_files():

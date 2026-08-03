@@ -27,7 +27,7 @@ def _local_abs(path: str) -> str:
 def _local_url(path: str) -> str:
     return f"uploads/{path}"
 
-def upload_file(file_obj, path: str) -> str:
+def upload_file(file_obj, path: str, overwrite: bool = False) -> str:
     if _local_enabled():
         dest = _local_abs(path)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -35,7 +35,10 @@ def upload_file(file_obj, path: str) -> str:
         return _local_url(path)
     client = _get_client()
     data = file_obj.read() if hasattr(file_obj, "read") else file_obj
-    client.storage.from_(SUPABASE_BUCKET).upload(path, data)
+    if overwrite:
+        client.storage.from_(SUPABASE_BUCKET).update(path, data)
+    else:
+        client.storage.from_(SUPABASE_BUCKET).upload(path, data)
     supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
 

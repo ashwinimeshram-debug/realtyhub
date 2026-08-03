@@ -9,10 +9,12 @@ interface CropBox {
 interface ImageCropperToolProps {
   defaultW?: number;
   defaultH?: number;
+  initialSrc?: string;
+  filenameHint?: string;
   onConfirm: (file: File) => void;
 }
 
-export default function ImageCropperTool({ defaultW = 460, defaultH = 290, onConfirm }: ImageCropperToolProps) {
+export default function ImageCropperTool({ defaultW = 460, defaultH = 290, initialSrc, filenameHint, onConfirm }: ImageCropperToolProps) {
   const [src, setSrc] = useState<string | null>(null);
   const [filename, setFilename] = useState("");
   const [cropBox, setCropBox] = useState<CropBox>({ x: 0, y: 0, w: 0, h: 0 });
@@ -67,6 +69,23 @@ export default function ImageCropperTool({ defaultW = 460, defaultH = 290, onCon
     };
     img.src = url;
   };
+
+  const loadUrl = (url: string) => {
+    const name = filenameHint || decodeURIComponent(url.split("/").pop()?.split("?")[0] || "image");
+    setFilename(name);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      imgRef.current = img;
+      setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+      setSrc(url);
+    };
+    img.src = url;
+  };
+
+  useEffect(() => {
+    if (initialSrc) loadUrl(initialSrc);
+  }, [initialSrc]);
 
   useEffect(() => {
     if (src && imgRef.current && natural.w > 0) {
