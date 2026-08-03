@@ -40,6 +40,7 @@ export default function AddPropertyPage() {
   const { user: currentUser } = useAuth();
   const [form, setForm] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(true);
   const [propertyId, setPropertyId] = useState<number | null>(null);
@@ -260,6 +261,11 @@ export default function AddPropertyPage() {
         toast("Property updated successfully", "success");
         setFiles([]);
         await fetchExistingImages(propertyId);
+        if (galleryUrls.length > 0) {
+          await API.post(`/admin/property/${propertyId}/gallery-images`, { urls: galleryUrls });
+          setGalleryUrls([]);
+          await fetchExistingImages(propertyId);
+        }
       } else {
         const res = await API.post("/admin/property", formData, {
           headers: { "Content-Type": "multipart/form-data" },
@@ -267,6 +273,10 @@ export default function AddPropertyPage() {
         toast(res.data.message, "success");
         setPropertyId(res.data.id);
         setFiles([]);
+        if (galleryUrls.length > 0) {
+          await API.post(`/admin/property/${res.data.id}/gallery-images`, { urls: galleryUrls });
+          setGalleryUrls([]);
+        }
         await fetchExistingImages(res.data.id);
       }
       setEditing(false);
@@ -286,6 +296,7 @@ export default function AddPropertyPage() {
 
   const handleCancel = () => {
     setEditing(false);
+    setGalleryUrls([]);
     if (propertyId) {
       fetchExistingImages(propertyId);
       fetchExistingProperty(propertyId);
@@ -295,6 +306,7 @@ export default function AddPropertyPage() {
   const handleNew = () => {
     setForm({});
     setFiles([]);
+    setGalleryUrls([]);
     setExistingImages([]);
     setEditing(true);
     setPropertyId(null);
@@ -533,6 +545,8 @@ export default function AddPropertyPage() {
               existingImages={existingImages}
               files={files}
               onFilesChange={setFiles}
+              galleryUrls={galleryUrls}
+              onGalleryUrlsChange={setGalleryUrls}
               onReorderExisting={async (reordered) => {
                 setExistingImages(reordered);
                 if (propertyId) {

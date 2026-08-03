@@ -831,8 +831,8 @@ def upload_images(property_id):
     prop = Property.query.get(property_id)
     safe_folder = prop.listing_id if prop else ""
 
-    from sqlalchemy import func, cast, String as _sa_func
-    max_order = db.session.query(_sa_func.max(PropertyImage.order)).filter_by(property_id=property_id).scalar()
+    from sqlalchemy import func
+    max_order = db.session.query(func.max(PropertyImage.order)).filter_by(property_id=property_id).scalar()
     start_order = (max_order or 0) + 1
     uploaded = []
 
@@ -849,6 +849,31 @@ def upload_images(property_id):
 
     db.session.commit()
     return jsonify({"message": "Images uploaded", "urls": uploaded})
+
+
+@admin_bp.route("/property/<int:property_id>/gallery-images", methods=["POST"])
+@jwt_required()
+def attach_gallery_images(property_id):
+    data = request.get_json(silent=True) or {}
+    urls = data.get("urls") or []
+    if not urls or not isinstance(urls, list):
+        return jsonify({"error": "urls array is required"}), 400
+    urls = [u for u in urls if isinstance(u, str) and u.strip()]
+    if not urls:
+        return jsonify({"error": "No URLs provided"}), 400
+
+    prop = Property.query.get(property_id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+
+    max_order = db.session.query(func.max(PropertyImage.order)).filter_by(property_id=property_id).scalar()
+    start_order = (max_order or 0) + 1
+    added = []
+    for i, url in enumerate(urls):
+        db.session.add(PropertyImage(property_id=property_id, image_url=url.strip(), order=start_order + i))
+        added.append(url.strip())
+    db.session.commit()
+    return jsonify({"message": "Gallery images attached", "urls": added}), 201
 
 
 @admin_bp.route("/delete-image/<int:image_id>", methods=["DELETE"])

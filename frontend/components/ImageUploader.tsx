@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { compressImagesToWebP } from "@/lib/imageProcessor";
 import { backendAssetUrl } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import GalleryPicker from "@/components/admin/GalleryPicker";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -19,6 +20,7 @@ type UnifiedImage = {
   key: string;
   url: string;
   existingId?: number;
+  galleryUrl?: string;
 };
 
 function SortableThumb({
@@ -64,6 +66,8 @@ export default function ImageUploader({
   onFilesChange,
   onReorderExisting,
   onDeleteExisting,
+  galleryUrls = [],
+  onGalleryUrlsChange,
   disabled = false,
 }: {
   existingImages?: ExistingImage[];
@@ -71,6 +75,8 @@ export default function ImageUploader({
   onFilesChange: (files: File[]) => void;
   onReorderExisting?: (reordered: ExistingImage[]) => void;
   onDeleteExisting?: (imageId: number) => void;
+  galleryUrls?: string[];
+  onGalleryUrlsChange?: (urls: string[]) => void;
   disabled?: boolean;
 }) {
   const { toast } = useToast();
@@ -90,8 +96,13 @@ export default function ImageUploader({
       key: `new-${i}-${url}`,
       url,
     }));
-    return [...existing, ...newOnes];
-  }, [existingImages, fileUrls]);
+    const gallery = galleryUrls.map((url, i) => ({
+      key: `gallery-${i}-${url}`,
+      url: backendAssetUrl(url),
+      galleryUrl: url,
+    }));
+    return [...existing, ...newOnes, ...gallery];
+  }, [existingImages, fileUrls, galleryUrls]);
 
   const totalCount = allItems.length;
 
@@ -107,6 +118,11 @@ export default function ImageUploader({
     if (!item) return;
     if (item.existingId && onDeleteExisting) {
       onDeleteExisting(item.existingId);
+    } else if (item.galleryUrl && onGalleryUrlsChange) {
+      const galIdx = galleryUrls.indexOf(item.galleryUrl);
+      if (galIdx !== -1) {
+        onGalleryUrlsChange(galleryUrls.filter((_, i) => i !== galIdx));
+      }
     } else {
       const fileIdx = fileUrls.indexOf(item.url);
       if (fileIdx !== -1) {
@@ -138,10 +154,20 @@ export default function ImageUploader({
     if (oldIndex === -1 || newIndex === -1) return;
 
     const movedItem = allItems[oldIndex];
-    if (!movedItem.existingId) {
+
+    if (movedItem.galleryUrl && onGalleryUrlsChange) {
+      const targetItem = allItems[newIndex];
+      if (targetItem?.galleryUrl) {
+        const oldGalIdx = galleryUrls.indexOf(movedItem.galleryUrl);
+        const newGalIdx = galleryUrls.indexOf(targetItem.galleryUrl);
+        if (oldGalIdx !== -1 && newGalIdx !== -1) {
+          onGalleryUrlsChange(arrayMove(galleryUrls, oldGalIdx, newGalIdx));
+        }
+      }
+    } else if (!movedItem.existingId) {
       const oldFileIdx = fileUrls.indexOf(movedItem.url);
       const targetItem = allItems[newIndex];
-      if (!targetItem.existingId) {
+      if (!targetItem?.existingId && !targetItem?.galleryUrl) {
         const newFileIdx = fileUrls.indexOf(targetItem.url);
         const newFiles = arrayMove(files, oldFileIdx, newFileIdx);
         onFilesChange(newFiles);
@@ -152,7 +178,7 @@ export default function ImageUploader({
       onReorderExisting(reordered);
     }
     setActiveIndex(newIndex);
-  }, [allItems, fileUrls, files, existingImages, onFilesChange, onReorderExisting]);
+  }, [allItems, fileUrls, files, existingImages, galleryUrls, onFilesChange, onReorderExisting, onGalleryUrlsChange]);
 
   return (
     <div>
@@ -204,6 +230,20 @@ export default function ImageUploader({
         <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>
           {processing ? "Compressing images to WebP..." : "Click to upload photos here · PNG, JPG, or WEBP up to 10MB"}
         </p>
+
+        {!disabled && onGalleryUrlsChange && (
+          <div className="mt-4">
+            <GalleryPicker
+              multiSelect
+              compact
+              onSelectMultiple={(urls) => {
+                const seen = new Set(existingImages.map((img) => img.image_url));
+                const fresh = urls.filter((u) => !galleryUrls.includes(u) && !seen.has(u));
+                if (fresh.length > 0) onGalleryUrlsChange([...galleryUrls, ...fresh]);
+              }}
+            />
+          </div>
+        )}
       </div>
       {totalCount > 0 && (
         <button onClick={handleRemoveSelected} disabled={disabled} className={`mt-3 text-sm ${disabled ? "text-gray-400 cursor-not-allowed" : "text-red-500 hover:text-red-700"}`}>Remove Selected Image</button>

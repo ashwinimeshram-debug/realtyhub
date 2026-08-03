@@ -66,6 +66,7 @@ export default function PropertyDetail() {
   const [selectedChips, setSelectedChips] = useState<string[]>([]);
   const [presetFeatures, setPresetFeatures] = useState<Array<{ id: number; label: string; sentence: string }>>([]);
   const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
 
   const typeNames = useMemo(() => Object.fromEntries(propertyTypes.map((t) => [t.value, t.name])), [propertyTypes]);
 
@@ -303,6 +304,10 @@ export default function PropertyDetail() {
         for (const f of newFiles) imgFormData.append("images", f);
         await API.post(`/admin/upload-images/${propertyId}`, imgFormData);
         setNewFiles([]);
+      }
+      if (galleryUrls.length > 0) {
+        await API.post(`/admin/property/${propertyId}/gallery-images`, { urls: galleryUrls });
+        setGalleryUrls([]);
       }
       toast("Property updated successfully", "success");
       await fetchProperty();
@@ -567,6 +572,8 @@ export default function PropertyDetail() {
               existingImages={property.images || []}
               files={newFiles}
               onFilesChange={setNewFiles}
+              galleryUrls={galleryUrls}
+              onGalleryUrlsChange={setGalleryUrls}
               onReorderExisting={async (reordered) => {
                 setProperty({ ...property, images: reordered });
                 const payload = reordered.map((img, i) => ({ id: img.id, order: i + 1 }));
@@ -590,7 +597,7 @@ export default function PropertyDetail() {
       <div className="flex flex-wrap justify-center gap-2 mt-6">
         {editing ? (
           <>
-            <button onClick={() => { setEditing(false); fetchProperty(); }} className="btn btn-ghost">Cancel</button>
+            <button onClick={() => { setEditing(false); setGalleryUrls([]); setNewFiles([]); fetchProperty(); }} className="btn btn-ghost">Cancel</button>
             <button onClick={handleSave} disabled={saving} className="btn btn-primary">
               {saving ? "Saving..." : "Save Changes"}
             </button>

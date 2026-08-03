@@ -14,13 +14,15 @@ interface MediaFile {
 
 interface GalleryPickerProps {
   currentImage?: string;
-  onSelect: (url: string) => void;
+  onSelect?: (url: string) => void;
   aspectRatio?: string;
   cropSettings?: ImageSettings;
   folder?: string;
   showPreview?: boolean;
   compact?: boolean;
   disabled?: boolean;
+  multiSelect?: boolean;
+  onSelectMultiple?: (urls: string[]) => void;
 }
 
 const DEFAULT_CROP: ImageSettings = { width: 1200, height: 675, quality: 0.8, brightness: 100, sharpness: 0 };
@@ -34,6 +36,8 @@ export default function GalleryPicker({
   showPreview = true,
   compact = false,
   disabled = false,
+  multiSelect = false,
+  onSelectMultiple,
 }: GalleryPickerProps) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -42,10 +46,17 @@ export default function GalleryPicker({
   const [uploading, setUploading] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const [cropFilename, setCropFilename] = useState("");
+  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const close = () => {
+    setOpen(false);
+    setSelectedUrls(new Set());
+  };
 
   useEffect(() => {
     if (!open) return;
+    setSelectedUrls(new Set());
     setLoading(true);
     API.get("/admin/media").then((res) => {
       setFiles(res.data.files || []);
@@ -67,8 +78,12 @@ export default function GalleryPicker({
     setUploading(true);
     try {
       const url = await uploadImage(file);
-      onSelect(url);
-      setOpen(false);
+      if (multiSelect && onSelectMultiple) {
+        onSelectMultiple([url]);
+      } else if (onSelect) {
+        onSelect(url);
+      }
+      close();
     } catch {
       toast("Failed to upload image", "error");
     }
@@ -145,7 +160,7 @@ export default function GalleryPicker({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
+                  onClick={close}
                   className="p-1.5 rounded hover:bg-gray-100 transition"
                 >
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -183,13 +198,26 @@ export default function GalleryPicker({
                       key={f.filename}
                       type="button"
                       onClick={() => {
-                        onSelect(f.url);
+                        if (multiSelect) {
+                          setSelectedUrls((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(f.url)) next.delete(f.url);
+                            else next.add(f.url);
+                            return next;
+                          });
+                          return;
+                        }
+                        if (onSelect) onSelect(f.url);
                         setOpen(false);
                       }}
                       className={`group relative rounded-lg overflow-hidden border-2 aspect-square transition ${
-                        currentImage === f.url
-                          ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
-                          : "border-gray-200 hover:border-blue-300"
+                        multiSelect
+                          ? selectedUrls.has(f.url)
+                            ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
+                            : "border-gray-200 hover:border-blue-300"
+                          : currentImage === f.url
+                            ? "border-[var(--primary)] ring-2 ring-[var(--primary)]"
+                            : "border-gray-200 hover:border-blue-300"
                       }`}
                     >
                       <img
@@ -201,18 +229,43 @@ export default function GalleryPicker({
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition">
                         <p className="text-white text-[10px] truncate">{f.filename}</p>
                       </div>
-                      {currentImage === f.url && (
+                      {(multiSelect && selectedUrls.has(f.url)) || (!multiSelect && currentImage === f.url) ? (
                         <div className="absolute top-1.5 right-1.5 bg-[var(--primary)] text-white rounded-full p-0.5">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                           </svg>
                         </div>
-                      )}
+                      ) : null}
                     </button>
                   ))}
                 </div>
               )}
             </div>
+
+            {/* FOOTER */}
+            {multiSelect && (
+              <div className="flex items-center justify-end gap-2 px-5 py-3 border-t shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedUrls(new Set())}
+                  disabled={selectedUrls.size === 0}
+                  className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                >
+                  Clear ({selectedUrls.size})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onSelectMultiple) onSelectMultiple([...selectedUrls]);
+                    close();
+                  }}
+                  disabled={selectedUrls.size === 0}
+                  className="bg-[var(--primary)] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[var(--primary-hover)] transition disabled:opacity-50"
+                >
+                  Add Selected ({selectedUrls.size})
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
