@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import API from "@/lib/api";
 import { backendAssetUrl } from "@/lib/api";
 import SearchBar from "./SearchBar";
@@ -37,9 +38,11 @@ export default function Navbar() {
       <div className="px-4 md:px-6 py-3 flex justify-between items-center">
         <Link href="/" className="flex items-center gap-2 text-lg md:text-xl font-bold transition" style={{ color: "var(--primary)" }}>
           {siteLogo && (
-            <img
+            <Image
               src={backendAssetUrl(siteLogo)}
               alt="Logo"
+              width={36}
+              height={36}
               className="h-8 w-8 md:h-9 md:w-9 object-contain rounded"
             />
           )}

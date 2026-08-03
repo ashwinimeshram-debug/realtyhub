@@ -6,6 +6,7 @@ import API, { setCsrfToken } from "@/lib/api";
 import AdminTopbar from "@/components/admin/AdminTopbar";
 import Sidebar from "@/components/admin/Sidebar";
 import { AuthProvider } from "@/hooks/useAuth";
+import { ConfirmProvider } from "@/hooks/useConfirm";
 
 const DEFAULT_TIMEOUT_MIN = 30;
 const WARNING_BUFFER_MS = 2 * 60 * 1000;
@@ -183,6 +184,7 @@ export default function AdminLayout({
 
   return (
     <AuthProvider>
+      <ConfirmProvider>
       <div className="flex min-h-screen bg-gray-100">
         {showExpiryWarning && (
           <div className="fixed inset-x-0 top-0 z-[100] bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium shadow-lg flex items-center justify-center gap-3">
@@ -207,6 +209,7 @@ export default function AdminLayout({
           <div className="p-3 md:p-6 flex-1 overflow-x-hidden">{children}</div>
         </div>
       </div>
+      </ConfirmProvider>
     </AuthProvider>
   );
 }
