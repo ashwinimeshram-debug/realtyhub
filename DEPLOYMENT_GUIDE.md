@@ -37,6 +37,23 @@ CREATE POLICY "Authenticated All" ON storage.objects
   );
 ```
 
+### Enable Row-Level Security (REQUIRED — prevents public data exposure)
+
+Tables created via `db.create_all()` are created **without** RLS, and Supabase
+grants `anon`/`authenticated` full read/write on them. This triggers the
+Security Advisor warnings `rls_disabled_in_public` and
+`sensitive_columns_exposed` (anyone with the project URL can read/edit/delete
+all data, including the `admins` password hashes).
+
+Run `supabase/enable_rls.sql` in **SQL Editor** (idempotent, safe to re-run).
+It enables RLS on every public table and revokes all table access from
+`anon`/`authenticated`. This is safe because the app never uses the anon key —
+the backend connects as the table owner (`postgres`) and uses `service_role`
+for storage, both of which bypass RLS.
+
+> Run this once per project. New tables created later by `db.create_all()`
+> are already covered by the `ALTER DEFAULT PRIVILEGES` revokes in the script.
+
 ### Get Connection Info
 - **Project Settings → Database → Connection string**
 - Copy the pooler connection string (port 6543)
