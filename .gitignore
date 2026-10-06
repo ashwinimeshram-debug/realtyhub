@@ -29,6 +29,13 @@ Thumbs.db
 # Uploads (user-generated content)
 backend/uploads/
 
+# Local backups (DB dumps, storage archives)
+backups/
+
+# Archives & logs
+*.zip
+*.log
+
 # Coverage / reports
 coverage/
 htmlcov/
