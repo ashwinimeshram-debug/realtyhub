@@ -14,7 +14,7 @@ SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "realtyhub-images")
 
 def _public_url(path: str) -> str:
     supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
-    return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}" if supabase_url else ""
+    return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}" if supabase_url else f"uploads/{path}"
 
 def _path_from_url(url: str) -> str:
     if not url:

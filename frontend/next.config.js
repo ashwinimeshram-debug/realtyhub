@@ -3,12 +3,8 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:500
 
 const nextConfig = {
   images: {
+    dangerouslyAllowLocalIP: true,
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**.supabase.co",
-        pathname: "/storage/v1/object/public/**",
-      },
       {
         protocol: "http",
         hostname: "localhost",

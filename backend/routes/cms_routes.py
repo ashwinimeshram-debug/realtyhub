@@ -322,7 +322,7 @@ def list_media():
         meta = item.get("metadata") or {}
         files.append({
             "filename": fname,
-            "url": f"{supabase_url}/storage/v1/object/public/{bucket}/{fname}" if supabase_url else "",
+            "url": f"{supabase_url}/storage/v1/object/public/{bucket}/{fname}" if supabase_url else f"uploads/{fname}",
             "size": meta.get("size", 0),
             "last_modified": item.get("updated_at", ""),
         })
@@ -337,7 +337,7 @@ def list_media():
             meta = item.get("metadata") or {}
             files.append({
                 "filename": f"{folder}/{fname}",
-                "url": f"{supabase_url}/storage/v1/object/public/{bucket}/{folder}/{fname}" if supabase_url else "",
+                "url": f"{supabase_url}/storage/v1/object/public/{bucket}/{folder}/{fname}" if supabase_url else f"uploads/{folder}/{fname}",
                 "size": meta.get("size", 0),
                 "last_modified": item.get("updated_at", ""),
             })

@@ -888,6 +888,10 @@ def delete_image(image_id):
         bucket_prefix = f"/storage/v1/object/public/"
         if bucket_prefix in old_path:
             old_path = old_path.split(bucket_prefix, 1)[1].split("/", 1)[1] if "/" in old_path.split(bucket_prefix, 1)[1] else ""
+        else:
+            old_path = old_path.lstrip("/")
+            if old_path.startswith("uploads/"):
+                old_path = old_path[len("uploads/"):]
         if old_path:
             delete_file(old_path)
     except Exception as e:

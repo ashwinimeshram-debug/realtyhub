@@ -1,6 +1,5 @@
 import os
 import shutil
-from supabase import create_client
 
 _supabase = None
 
@@ -10,6 +9,7 @@ def _get_client():
         url = os.environ.get("SUPABASE_URL", "")
         key = os.environ.get("SUPABASE_SERVICE_KEY", "")
         if url and key:
+            from supabase import create_client
             _supabase = create_client(url, key)
     return _supabase
 
@@ -42,14 +42,16 @@ def upload_file(file_obj, path: str, overwrite: bool = False) -> str:
     supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
 
-def delete_file(path: str):
+def delete_file(path):
+    paths = list(path) if isinstance(path, (list, tuple)) else [path]
     if _local_enabled():
-        dest = _local_abs(path)
-        if os.path.exists(dest):
-            os.remove(dest)
+        for p in paths:
+            dest = _local_abs(p)
+            if os.path.exists(dest):
+                os.remove(dest)
         return
     client = _get_client()
-    client.storage.from_(SUPABASE_BUCKET).remove([path])
+    client.storage.from_(SUPABASE_BUCKET).remove(paths)
 
 def rename_file(old_path: str, new_path: str) -> str:
     if _local_enabled():
