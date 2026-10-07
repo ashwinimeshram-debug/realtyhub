@@ -335,6 +335,52 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* AUTOMATION */}
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Automation</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
+          Control automatic workflows for new leads and property listings.
+        </p>
+
+        <label className="flex items-center gap-3 cursor-pointer mb-4">
+          <button
+            type="button"
+            onClick={() => handleChange("auto_assign_leads", settings.auto_assign_leads !== "true" ? "true" : "false")}
+            className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+              settings.auto_assign_leads === "true" ? "bg-blue-600" : "bg-gray-300"
+            }`}
+          >
+            <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+              settings.auto_assign_leads === "true" ? "translate-x-5" : ""
+            }`} />
+          </button>
+          <div className="flex-1">
+            <p className="text-sm text-gray-700 font-medium">Auto-assign new leads</p>
+            <p className="text-xs text-gray-500">Automatically assign new leads to the least-loaded executive.</p>
+          </div>
+        </label>
+
+        <label className="flex items-center gap-3 cursor-pointer">
+          <button
+            type="button"
+            onClick={() => handleChange("auto_approve_properties", settings.auto_approve_properties === "true" ? "false" : "true")}
+            className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+              settings.auto_approve_properties === "true" ? "bg-blue-600" : "bg-gray-300"
+            }`}
+          >
+            <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+              settings.auto_approve_properties === "true" ? "translate-x-5" : ""
+            }`} />
+          </button>
+          <div className="flex-1">
+            <p className="text-sm text-gray-700 font-medium">Auto-approve new properties</p>
+            <p className="text-xs text-gray-500">
+              When on, new property submissions are published directly to the website without admin approval. When off, they require approval.
+            </p>
+          </div>
+        </label>
+      </div>
+
       <div className="flex justify-center mt-6 pt-4 border-t">
         <button
           onClick={handleSave}
