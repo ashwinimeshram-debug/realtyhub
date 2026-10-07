@@ -19,6 +19,7 @@ export default function PropertyDetail() {
   const [allIds, setAllIds] = useState<number[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitMsg, setSubmitMsg] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", mobile: "" });
 
@@ -66,7 +67,8 @@ export default function PropertyDetail() {
 
     setSubmitting(true);
     try {
-      await API.post(`/property/${propertyId}/contact`, form);
+      const res = await API.post(`/property/${propertyId}/contact`, form);
+      setSubmitMsg(res.data?.message || "Thank you! Our team will contact you shortly.");
       setSubmitted(true);
     } catch (err: any) {
       toast(err.response?.data?.error || "Something went wrong", "error");
@@ -77,6 +79,7 @@ export default function PropertyDetail() {
   const closeModal = () => {
     setShowModal(false);
     setSubmitted(false);
+    setSubmitMsg("");
     setForm({ name: "", email: "", mobile: "" });
   };
 
@@ -161,7 +164,7 @@ export default function PropertyDetail() {
                 <div className="text-5xl mb-4">✓</div>
                 <h3 className="text-xl font-bold text-green-600 mb-2">Thank You!</h3>
                 <p className="text-gray-500 mb-6">
-                  We have received your interest. Our team will contact you shortly.
+                  {submitMsg}
                 </p>
                 <button
                   onClick={closeModal}

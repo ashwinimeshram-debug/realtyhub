@@ -2,8 +2,9 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from extensions import db, limiter
 from models.contactus import Contactus
-from models.models import PropertyContact, Property
+from models.models import Admin, PropertyContact, Property
 from sqlalchemy.orm import joinedload
+from utils.mailer import contactus_admin_email, send_email_async
 
 contact_bp = Blueprint("contact", __name__)
 
@@ -19,6 +20,14 @@ def create_contact():
     new_contact = Contactus(name=data["name"], email=data["email"], phone=data["phone"], message=data["message"])
     db.session.add(new_contact)
     db.session.commit()
+
+    admins = Admin.query.filter_by(role="admin", is_active=True).all()
+    for admin in admins:
+        send_email_async(
+            "New contact form message - Nagpur Realty Hub",
+            [admin.email],
+            contactus_admin_email(new_contact, admin.name or admin.username),
+        )
     return jsonify({"message": "Submitted successfully"}), 201
 
 

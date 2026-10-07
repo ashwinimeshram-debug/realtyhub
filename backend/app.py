@@ -21,12 +21,29 @@ def create_app():
     CORS(app, supports_credentials=True, origins=app.config.get("CORS_ORIGINS", ["http://localhost:3000"]))
     jwt = JWTManager(app)
 
+    @jwt.token_in_blocklist_loader
+    def _auth_namespace_guard(jwt_header, jwt_payload):
+        """Keep owner tokens and admin tokens in separate namespaces.
+
+        Both use the same access_token_cookie, so without this guard an
+        owner with id N could impersonate the admin with id N on
+        /api/admin/* endpoints (and vice versa).
+        """
+        sub = str(jwt_payload.get("sub", ""))
+        path = request.path
+        if path.startswith("/api/admin") and not sub.isdigit():
+            return True
+        if path.startswith("/api/owner") and sub.isdigit():
+            return True
+        return False
+
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     with app.app_context():
         _import_all_models()
         db.create_all()
         _bootstrap_schema()
+        _seed_rbac()
         _seed_defaults()
 
     _register_blueprints(app)
@@ -46,11 +63,12 @@ def create_app():
 
 def _import_all_models():
     from models.models import (
-        Property, PropertyContact, PropertyImage, Admin,
+        Property, PropertyContact, PropertyImage, Admin, Owner,
         Lead, LeadStatus, LeadHistory, Faq, PropertyType,
         AboutGalleryImage, TeamMember, ActivityLog,
         PropertyTypeField, PropertyValue, PresetFeature, PropertyFeature,
         PropertyAuditLog, PasswordResetRequest,
+        Role, Permission, RolePermission,
     )
     from models.cms_models import HeroSlide, Service, Advantage
     from models.contactus import Contactus
@@ -73,6 +91,7 @@ def _register_blueprints(app):
     from routes.types_routes import types_bp
     from routes.gallery_routes import gallery_bp
     from routes.team_routes import team_bp
+    from routes.owner_routes import owner_bp
 
     app.register_blueprint(public_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -87,6 +106,7 @@ def _register_blueprints(app):
     app.register_blueprint(types_bp, url_prefix="/api")
     app.register_blueprint(gallery_bp, url_prefix="/api")
     app.register_blueprint(team_bp, url_prefix="/api")
+    app.register_blueprint(owner_bp, url_prefix="/api/owner")
 
 
 def _register_error_handlers(app):
@@ -158,8 +178,22 @@ def _bootstrap_schema():
 
     # Price display variants column (e.g. "*", "onwards", "Connect for Price")
     _safe_execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS price_text VARCHAR(50) DEFAULT '*'")
+    # Property owner account linkage (owners table created by db.create_all above)
+    _safe_execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES owners(id)")
+    _safe_execute("CREATE INDEX IF NOT EXISTS ix_properties_owner_id ON properties(owner_id)")
+    # Staff role linkage (roles table created by db.create_all above)
+    _safe_execute("ALTER TABLE admins ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id)")
+    # Owner password reset tokens
+    _safe_execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255)")
+    _safe_execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP")
     # Convert floor / total-floor / area fields to free-text
     _safe_execute("UPDATE property_type_fields SET field_type='text' WHERE field_key IN ('floor_level','total_floors','area_size')")
+
+
+def _seed_rbac():
+    """Seed roles, permission catalog and grants for the RBAC system."""
+    from utils.permissions import seed_rbac as _seed
+    _seed()
 
 
 def _seed_defaults():
@@ -226,6 +260,7 @@ def _seed_defaults():
         _seed_preset_features()
 
     _seed_page_settings()
+    _seed_mail_settings()
 
     db.session.commit()
 
@@ -401,6 +436,24 @@ def _seed_description_templates():
             category=category, property_type=prop_type, template_text=text,
             sort_order=order, is_active=True,
         ))
+
+
+def _seed_mail_settings():
+    """Seed default SMTP config keys into the settings table (first boot only)."""
+    from models.setting_model import Setting
+
+    defaults = {
+        "mail_enabled": "false",
+        "mail_server": "smtp.gmail.com",
+        "mail_port": "587",
+        "mail_username": os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com"),
+        "mail_password": os.getenv("MAIL_PASSWORD", ""),
+        "mail_sender": os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com"),
+        "mail_use_tls": "true",
+    }
+    for key, value in defaults.items():
+        if not Setting.query.filter_by(skey=key).first():
+            db.session.add(Setting(skey=key, svalue=value))
 
 
 def _seed_page_settings():

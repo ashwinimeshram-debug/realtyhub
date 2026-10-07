@@ -24,6 +24,7 @@ class Property(db.Model):
     title_template_id = db.Column(db.Integer, db.ForeignKey("description_templates.id"), nullable=True)
     selected_chips = db.Column(db.Text, nullable=True)
     uploaded_by = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey("owners.id"), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = db.Column(db.DateTime, nullable=True)
@@ -32,6 +33,7 @@ class Property(db.Model):
     images = db.relationship("PropertyImage", backref="property", lazy="selectin", cascade="all, delete-orphan",
                              order_by="PropertyImage.order")
     uploaded_admin = db.relationship("Admin", backref="uploaded_properties", lazy="joined", foreign_keys=[uploaded_by])
+    owner = db.relationship("Owner", backref="properties", lazy="joined")
     features = db.relationship("PresetFeature", secondary="property_features", backref="properties", lazy="selectin")
 
     __table_args__ = (
@@ -91,8 +93,66 @@ class Admin(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     reset_token = db.Column(db.String(255), nullable=True)
     reset_token_expiry = db.Column(db.DateTime, nullable=True)
+    role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, nullable=True)
+
+    role_obj = db.relationship("Role", backref="admins", lazy="joined")
+
+
+class Role(db.Model):
+    __tablename__ = "roles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    slug = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    description = db.Column(db.String(255), nullable=True)
+    is_system = db.Column(db.Boolean, default=False)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    permissions = db.relationship("Permission", secondary="role_permissions",
+                                  backref="roles", lazy="selectin")
+
+
+class Permission(db.Model):
+    __tablename__ = "permissions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    label = db.Column(db.String(150), nullable=False)
+    module = db.Column(db.String(50), nullable=False, default="general")
+    description = db.Column(db.String(255), nullable=True)
+
+
+class RolePermission(db.Model):
+    __tablename__ = "role_permissions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    role_id = db.Column(db.Integer, db.ForeignKey("roles.id", ondelete="CASCADE"), nullable=False)
+    permission_id = db.Column(db.Integer, db.ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("role_id", "permission_id", name="uq_role_permission"),
+    )
+
+
+class Owner(db.Model):
+    __tablename__ = "owners"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(150), unique=True, nullable=False, index=True)
+    mobile = db.Column(db.String(20), nullable=True)
+    password = db.Column(db.String(255), nullable=False)
+    is_verified = db.Column(db.Boolean, default=False)
+    verification_token = db.Column(db.String(255), nullable=True)
+    verification_expiry = db.Column(db.DateTime, nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime, nullable=True)
+    reset_token = db.Column(db.String(255), nullable=True)
+    reset_token_expiry = db.Column(db.DateTime, nullable=True)
 
 
 class Lead(db.Model):

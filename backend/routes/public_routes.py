@@ -1,6 +1,11 @@
 from flask import Blueprint, request, jsonify, current_app
-from models.models import db, Property, PropertyImage, PropertyContact, PropertyTypeField, PropertyValue, Lead, PresetFeature, PropertyFeature
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from models.models import db, Admin, Owner, Property, PropertyImage, PropertyContact, PropertyTypeField, PropertyValue, Lead, PresetFeature, PropertyFeature
 from utils.helpers import generate_listing_id, paginate
+from utils.mailer import (
+    connect_ack_visitor_email, connect_owner_email, new_lead_email,
+    send_email_async, submission_received_email,
+)
 from extensions import limiter
 import os
 import json
@@ -49,15 +54,26 @@ def _parse_price(price_str):
 
 
 @public_bp.route("/submit-property", methods=["POST"])
+@jwt_required()
 @limiter.limit("10/hour")
 def submit_property():
+    ident = str(get_jwt_identity() or "")
+    if not ident.startswith("owner:"):
+        return jsonify({"error": "Owner login required to post a property"}), 401
+    try:
+        owner = Owner.query.get(int(ident.split(":", 1)[1]))
+    except ValueError:
+        owner = None
+    if not owner or not owner.is_active:
+        return jsonify({"error": "Owner login required to post a property"}), 401
+    if not owner.is_verified:
+        return jsonify({"error": "Please verify your email before posting a property"}), 403
+
     data = request.form
-    required_fields = ["title", "transaction_type", "property_type", "location", "name"]
+    required_fields = ["title", "transaction_type", "property_type", "location"]
     for field in required_fields:
         if not data.get(field):
             return jsonify({"error": f"{field} is required"}), 400
-    if not data.get("mobile") and not data.get("email"):
-        return jsonify({"error": "Mobile or Email is required"}), 400
 
     try:
         price = _parse_price(data.get("price"))
@@ -70,6 +86,7 @@ def submit_property():
             transaction_type=data.get("transaction_type"),
             property_type=data.get("property_type"),
             status="pending", is_active=False,
+            owner_id=owner.id,
             overview_template_id=int(data["overview_template_id"]) if data.get("overview_template_id") and data["overview_template_id"].isdigit() else None,
             closing_template_id=int(data["closing_template_id"]) if data.get("closing_template_id") and data["closing_template_id"].isdigit() else None,
             title_template_id=int(data["title_template_id"]) if data.get("title_template_id") and data["title_template_id"].isdigit() else None,
@@ -79,12 +96,10 @@ def submit_property():
         prop.listing_id = generate_listing_id(prop.id)
         db.session.commit()
 
-        owner_name = data.get("name", "").strip()
-        owner_email = data.get("email", "").strip() or None
-        owner_mobile = data.get("mobile", "").strip()
+        owner_mobile = data.get("mobile", "").strip() or owner.mobile
         db.session.add(PropertyContact(
             property_id=prop.id, type="owner",
-            name=owner_name, email=owner_email, mobile=owner_mobile,
+            name=owner.name, email=owner.email, mobile=owner_mobile,
         ))
 
         db.session.flush()
@@ -147,6 +162,11 @@ def submit_property():
             except Exception as e:
                 logger.warning("Failed to parse feature_ids for submission: %s", e)
 
+        send_email_async(
+            "Property submitted for review - Nagpur Realty Hub",
+            [owner.email],
+            submission_received_email(prop, owner.name),
+        )
         return jsonify({"message": "Property submitted for review", "listing_id": prop.listing_id})
     except Exception as e:
         db.session.rollback()
@@ -242,15 +262,55 @@ def property_contact(id):
     if not name or not mobile:
         return jsonify({"error": "Name and mobile are required"}), 400
 
+    prop = Property.query.get(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+
     lead = Lead(name=name, email=email, mobile=mobile, source="connect", property_id=id)
     db.session.add(lead)
     db.session.commit()
 
-    from routes.leads_routes import _auto_assign_lead
-    _auto_assign_lead(lead)
-    db.session.commit()
+    # Owner-first routing: enquiries on owner-posted properties go directly to
+    # the owner and stay unassigned so executives do not double-contact the visitor.
+    owner_handled = bool(prop.owner_id)
+    if not owner_handled:
+        from routes.leads_routes import _auto_assign_lead
+        _auto_assign_lead(lead)
+        db.session.commit()
 
-    return jsonify({"message": "Thank you! Our team will contact you shortly."}), 201
+    if email:
+        send_email_async(
+            "Enquiry received - Nagpur Realty Hub",
+            [email],
+            connect_ack_visitor_email(name, prop),
+        )
+
+    recipients = []
+    if owner_handled:
+        owner = prop.owner
+        if owner:
+            send_email_async(
+                f"New connect request - {prop.title}",
+                [owner.email],
+                connect_owner_email(prop, {"name": name, "mobile": mobile, "email": email}, owner.name),
+            )
+    elif lead.assigned_to:
+        exec_admin = Admin.query.get(lead.assigned_to)
+        if exec_admin:
+            recipients.append(exec_admin.email)
+    recipients += [a.email for a in Admin.query.filter_by(role="admin", is_active=True).all()]
+    recipients = list(dict.fromkeys(r for r in recipients if r))
+    if recipients:
+        send_email_async(
+            "New visitor enquiry - Nagpur Realty Hub",
+            recipients,
+            new_lead_email(lead, prop, owner_handled),
+        )
+
+    message = ("Thank you! The owner will contact you shortly."
+               if owner_handled else
+               "Thank you! Our team will contact you shortly.")
+    return jsonify({"message": message}), 201
 
 
 @public_bp.route("/faq", methods=["GET"])

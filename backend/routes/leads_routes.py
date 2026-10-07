@@ -1,16 +1,19 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
-from models.models import Lead, LeadStatus, LeadHistory, PropertyContact, Admin
+from models.models import Lead, LeadStatus, LeadHistory, PropertyContact, Admin, Property
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from utils.helpers import paginate
+from utils.permissions import has_permission
 
 leads_bp = Blueprint("leads", __name__)
 
 
 def _get_executives():
-    return Admin.query.filter(Admin.is_active == True, Admin.role != "admin").all()
+    """Staff users whose role has the leads.auto_assign permission."""
+    return [a for a in Admin.query.filter(Admin.is_active == True).all()
+            if has_permission(a, "leads.auto_assign")]
 
 
 def _least_loaded_executive(executives, lead_count_map=None):
@@ -111,6 +114,38 @@ def _require_admin():
     return True
 
 
+def _perm(code):
+    admin = _get_current_admin()
+    if not has_permission(admin, code):
+        abort(403, description="Permission denied")
+    return admin
+
+
+def _can_access_lead(lead, admin):
+    """Admins see all leads; owners of a listing (manage_own) see their own
+    property leads; everyone else sees only leads assigned to them."""
+    if not admin:
+        return False
+    if admin.role_obj and admin.role_obj.slug == "admin":
+        return True
+    if has_permission(admin, "properties.manage_own") and lead.property and lead.property.uploaded_by == admin.id:
+        return True
+    if lead.assigned_to is None and has_permission(admin, "leads.update"):
+        return True
+    return lead.assigned_to == admin.id
+
+
+def _lead_scope(allowed_admin):
+    """Builder-aware non-admin lead scope (assigned to me, or on my listings)."""
+    uid = int(get_jwt_identity())
+    if has_permission(allowed_admin, "properties.manage_own"):
+        return db.or_(
+            Lead.assigned_to == uid,
+            Lead.property.has(Property.uploaded_by == uid),
+        )
+    return Lead.assigned_to == uid
+
+
 def _lead_detail_dict(l):
     d = _lead_dict(l)
     admin = Admin.query.get(l.assigned_to) if l.assigned_to else None
@@ -141,6 +176,7 @@ def _lead_detail_dict(l):
 @leads_bp.route("/admin/leads", methods=["GET"])
 @jwt_required()
 def get_leads():
+    _perm("leads.view")
     status = request.args.get("status")
     source = request.args.get("source")
     assigned_to = request.args.get("assigned_to")
@@ -154,9 +190,13 @@ def get_leads():
 
     query = Lead.query
 
-    # Non-admins can only see leads assigned to them
+    # Non-admins default to their assigned leads (builders also see own-listing leads);
+    # scope=unassigned surfaces the open lead pool so staff can claim leads.
     if not is_admin:
-        query = query.filter_by(assigned_to=int(admin_id))
+        if request.args.get("scope") == "unassigned":
+            query = query.filter(Lead.assigned_to.is_(None))
+        else:
+            query = query.filter(_lead_scope(current_admin))
     elif user_id:
         try:
             query = query.filter_by(assigned_to=int(user_id))
@@ -210,10 +250,11 @@ def get_leads():
 @leads_bp.route("/admin/leads/<int:id>", methods=["GET"])
 @jwt_required()
 def get_lead(id):
+    _perm("leads.view")
     lead = Lead.query.get(id)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-    if not _require_admin() and lead.assigned_to != int(get_jwt_identity()):
+    if not _can_access_lead(lead, _get_current_admin()):
         return jsonify({"error": "Forbidden"}), 403
     return jsonify(_lead_detail_dict(lead))
 
@@ -224,6 +265,7 @@ def get_lead(id):
 @leads_bp.route("/admin/leads", methods=["POST"])
 @jwt_required()
 def create_lead():
+    _perm("leads.update")
     data = request.json
     name = data.get("name", "").strip()
     if not name:
@@ -244,14 +286,23 @@ def create_lead():
 @leads_bp.route("/admin/leads/<int:id>/assign", methods=["POST"])
 @jwt_required()
 def assign_lead(id):
-    if not _require_admin():
-        return jsonify({"error": "Forbidden"}), 403
+    admin = _get_current_admin()
     lead = Lead.query.get(id)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-    data = request.json
+    data = request.json or {}
     user_id = data.get("user_id")
-    lead.assigned_to = user_id if user_id else None
+    if has_permission(admin, "leads.assign"):
+        lead.assigned_to = user_id if user_id else None
+    else:
+        # Staff can only claim an unassigned lead for themselves
+        if not has_permission(admin, "leads.update"):
+            abort(403, description="Permission denied")
+        if lead.assigned_to is not None:
+            return jsonify({"error": "Lead is already assigned"}), 400
+        if not user_id or int(user_id) != admin.id:
+            return jsonify({"error": "You can only claim leads for yourself"}), 403
+        lead.assigned_to = admin.id
     db.session.commit()
 
     new_status = LeadStatus.query.filter_by(name="New").first()
@@ -268,8 +319,7 @@ def assign_lead(id):
 @leads_bp.route("/admin/leads/auto-assign", methods=["POST"])
 @jwt_required()
 def auto_assign():
-    if not _require_admin():
-        return jsonify({"error": "Forbidden"}), 403
+    _perm("leads.assign")
     data = request.json or {}
     lead_ids = data.get("lead_ids", [])
     executives = _get_executives()
@@ -311,10 +361,11 @@ def auto_assign():
 @leads_bp.route("/admin/leads/<int:id>/interactions", methods=["POST"])
 @jwt_required()
 def add_interaction(id):
+    _perm("leads.update")
     lead = Lead.query.get(id)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-    if not _require_admin() and lead.assigned_to != int(get_jwt_identity()):
+    if not _can_access_lead(lead, _get_current_admin()):
         return jsonify({"error": "Forbidden"}), 403
     data = request.json
 
@@ -355,10 +406,11 @@ def add_interaction(id):
 @leads_bp.route("/admin/leads/<int:id>/stage", methods=["PATCH"])
 @jwt_required()
 def update_lead_stage(id):
+    _perm("leads.update")
     lead = Lead.query.get(id)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-    if not _require_admin() and lead.assigned_to != int(get_jwt_identity()):
+    if not _can_access_lead(lead, _get_current_admin()):
         return jsonify({"error": "Forbidden"}), 403
     data = request.json
     if "stage" in data:
@@ -389,10 +441,11 @@ def update_lead_stage(id):
 @leads_bp.route("/admin/leads/<int:id>/not-interested", methods=["POST"])
 @jwt_required()
 def mark_not_interested(id):
+    _perm("leads.update")
     lead = Lead.query.get(id)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-    if not _require_admin() and lead.assigned_to != int(get_jwt_identity()):
+    if not _can_access_lead(lead, _get_current_admin()):
         return jsonify({"error": "Forbidden"}), 403
     data = request.json
     lead.stage = "CLOSED"
@@ -416,10 +469,11 @@ def mark_not_interested(id):
 @leads_bp.route("/admin/leads/<int:id>/reopen", methods=["POST"])
 @jwt_required()
 def reopen_lead(id):
+    _perm("leads.update")
     lead = Lead.query.get(id)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
-    if not _require_admin() and lead.assigned_to != int(get_jwt_identity()):
+    if not _can_access_lead(lead, _get_current_admin()):
         return jsonify({"error": "Forbidden"}), 403
     lead.stage = "NEW"
     lead.lead_status = "ACTIVE"
@@ -441,6 +495,7 @@ def reopen_lead(id):
 @leads_bp.route("/admin/leads/archived", methods=["GET"])
 @jwt_required()
 def get_archived_leads():
+    _perm("leads.view")
     search = request.args.get("search", "").strip()
     status_filter = request.args.get("status", "").strip()
 
@@ -451,7 +506,7 @@ def get_archived_leads():
     query = Lead.query.filter(Lead.archived_at.isnot(None))
 
     if not is_admin:
-        query = query.filter_by(assigned_to=int(admin_id))
+        query = query.filter(_lead_scope(current_admin))
 
     if search:
         like = f"%{search}%"
@@ -541,6 +596,7 @@ def reorder_statuses():
 @leads_bp.route("/admin/leads/stats", methods=["GET"])
 @jwt_required()
 def lead_stats():
+    _perm("leads.view")
     now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
@@ -554,7 +610,7 @@ def lead_stats():
     user_id = request.args.get("user_id")
 
     if not is_admin:
-        base_query = base_query.filter_by(assigned_to=int(admin_id))
+        base_query = base_query.filter(_lead_scope(current_admin))
     elif user_id:
         try:
             base_query = base_query.filter_by(assigned_to=int(user_id))
@@ -614,24 +670,29 @@ def lead_stats():
 @leads_bp.route("/admin/leads/followups", methods=["GET"])
 @jwt_required()
 def get_followups():
+    _perm("leads.view")
     now = datetime.utcnow()
     admin_id = get_jwt_identity()
     current_admin = Admin.query.get(int(admin_id))
     is_admin = current_admin and current_admin.role == "admin"
+    can_manage_own = has_permission(current_admin, "properties.manage_own")
 
     upcoming = LeadHistory.query.filter(
-        LeadHistory.followup_date >= now,
-        LeadHistory.followup_date <= now + timedelta(days=7)
-    ).order_by(LeadHistory.followup_date.asc()).limit(20).all()
+        LeadHistory.followup_date.isnot(None),
+        LeadHistory.followup_date >= now - timedelta(days=90)
+    ).order_by(LeadHistory.followup_date.asc()).limit(500).all()
 
     results = []
     for h in upcoming:
         lead = Lead.query.get(h.lead_id)
         if not lead:
             continue
-        # Non-admins only see their own follow-ups
-        if not is_admin and lead.assigned_to != int(admin_id):
-            continue
+        # Non-admins only see their own follow-ups (or those on their listings)
+        if not is_admin:
+            if lead.assigned_to != int(admin_id) and not (
+                can_manage_own and lead.property and lead.property.uploaded_by == int(admin_id)
+            ):
+                continue
         results.append({
             "id": h.id,
             "lead_id": h.lead_id,
@@ -658,6 +719,7 @@ def get_followups():
 @leads_bp.route("/admin/leads/executives", methods=["GET"])
 @jwt_required()
 def get_executives():
+    _perm("leads.assign")
     admins = Admin.query.filter(Admin.is_active == True).all()
     return jsonify([{
         "id": a.id,
@@ -672,8 +734,7 @@ def get_executives():
 @leads_bp.route("/admin/leads/from-contact/<int:contact_id>", methods=["POST"])
 @jwt_required()
 def create_lead_from_contact(contact_id):
-    if not _require_admin():
-        return jsonify({"error": "Forbidden"}), 403
+    _perm("leads.update")
     pc = PropertyContact.query.get(contact_id)
     if not pc:
         return jsonify({"error": "Contact not found"}), 404

@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function AdminDashboard({ onNavigate }: Props) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, hasPermission } = useAuth();
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -24,14 +24,14 @@ export default function AdminDashboard({ onNavigate }: Props) {
   const stats = summary?.stats || {};
 
   const quickActions = [
-    { label: "Add Property", href: "/admin/add-property", color: "bg-[var(--primary)] hover:bg-[var(--primary-hover)]" },
-    { label: "View Properties", href: "/admin/properties", color: "bg-indigo-600 hover:bg-indigo-700" },
-    { label: "Featured Properties", href: "/admin/cms/featured", color: "bg-teal-600 hover:bg-teal-700" },
-    { label: "Leads", href: "/admin/leads", color: "bg-emerald-600 hover:bg-emerald-700" },
-    { label: "Users", href: "/admin/users", color: "bg-violet-600 hover:bg-violet-700", adminOnly: true },
-    { label: "CMS", href: "/admin/cms", color: "bg-amber-600 hover:bg-amber-700" },
-    { label: "Analytics", href: "/admin/analytics", color: "bg-cyan-600 hover:bg-cyan-700" },
-    { label: "Settings", href: "/admin/settings", color: "bg-gray-600 hover:bg-gray-700" },
+    { label: "Add Property", href: "/admin/add-property", color: "bg-[var(--primary)] hover:bg-[var(--primary-hover)]", perm: "properties.create" },
+    { label: "View Properties", href: "/admin/properties", color: "bg-indigo-600 hover:bg-indigo-700", perm: "properties.view" },
+    { label: "Featured Properties", href: "/admin/cms/featured", color: "bg-teal-600 hover:bg-teal-700", perm: "cms.manage" },
+    { label: "Leads", href: "/admin/leads", color: "bg-emerald-600 hover:bg-emerald-700", perm: "leads.view" },
+    { label: "Users", href: "/admin/users", color: "bg-violet-600 hover:bg-violet-700", perm: "users.manage" },
+    { label: "CMS", href: "/admin/cms", color: "bg-amber-600 hover:bg-amber-700", perm: "cms.manage" },
+    { label: "Analytics", href: "/admin/analytics", color: "bg-cyan-600 hover:bg-cyan-700", perm: "analytics.view" },
+    { label: "Settings", href: "/admin/settings", color: "bg-gray-600 hover:bg-gray-700", perm: "settings.manage" },
   ];
 
   if (loading) {
@@ -59,14 +59,14 @@ export default function AdminDashboard({ onNavigate }: Props) {
         <StatCard label="Pending" value={stats.pending_properties ?? "-"} color="bg-amber-50" valueColor="text-amber-700" icon={<svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} />
         <StatCard label="Rejected" value={stats.rejected_properties ?? "-"} color="bg-red-50" valueColor="text-red-700" icon={<svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>} />
         <StatCard label="Leads (30d)" value={stats.leads_30d ?? "-"} color="bg-white" icon={<svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} />
-        {isAdmin && <StatCard label="Users" value={stats.total_users ?? "-"} color="bg-white" icon={<svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>} />}
+        {hasPermission("users.manage") && <StatCard label="Users" value={stats.total_users ?? "-"} color="bg-white" icon={<svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>} />}
       </div>
 
       {/* Quick Actions */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
         <div className="flex flex-wrap justify-center gap-2">
-          {quickActions.filter((a) => !(a as any).adminOnly || isAdmin).map((a) => (
+          {quickActions.filter((a) => hasPermission(a.perm)).map((a) => (
             <Link key={a.href} href={a.href} className={`${a.color} text-white text-sm font-medium px-4 py-2 rounded-lg transition`}>
               {a.label}
             </Link>

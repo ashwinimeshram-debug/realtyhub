@@ -26,6 +26,14 @@ def invalidate_settings_cache():
     _settings_cache.clear()
 
 
+def is_setting_enabled(key, default=False):
+    """Read a boolean setting safely (accepts true/1/yes/on)."""
+    value = get_all_settings().get(key)
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
 @settings_bp.route("/settings", methods=["GET"])
 def public_get_settings():
     PUBLIC_PREFIXES = ("site_", "section_", "hero_", "page_", "contact_", "social_")
@@ -37,7 +45,16 @@ def public_get_settings():
 @settings_bp.route("/admin/settings", methods=["GET"])
 @jwt_required()
 def admin_get_settings():
-    return jsonify(get_all_settings())
+    data = dict(get_all_settings())
+    if "mail_password" in data:
+        data["mail_password"] = ""
+    return jsonify(data)
+
+
+MAIL_SETTING_KEYS = {
+    "mail_enabled", "mail_server", "mail_port", "mail_username",
+    "mail_password", "mail_sender", "mail_use_tls",
+}
 
 
 @settings_bp.route("/admin/settings", methods=["PUT"])
@@ -54,12 +71,18 @@ def admin_update_settings():
         "section_order", "section_hero_visible", "section_services_visible",
         "section_advantages_visible", "section_testimonials_visible",
         "section_featured_visible", "section_faq_visible", "section_locations_visible",
+        "auto_assign_leads", "auto_approve_properties",
     }
+    ACCEPTED = KNOWN_SETTINGS | MAIL_SETTING_KEYS
     for key in data:
-        if key not in KNOWN_SETTINGS:
+        if key not in ACCEPTED:
             continue
         val = data[key]
-        if val is not None and not isinstance(val, str):
+        if key == "mail_password":
+            if val is None or not str(val).strip():
+                continue
+            val = str(val)
+        elif val is not None and not isinstance(val, str):
             return jsonify({"error": f"Setting values must be strings: {key}"}), 400
         val_str = str(val) if val is not None else ""
         setting = Setting.query.filter_by(skey=key).first()

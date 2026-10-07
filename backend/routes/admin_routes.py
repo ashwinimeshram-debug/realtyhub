@@ -1,12 +1,13 @@
 from flask import Blueprint, request, jsonify, current_app, abort
-from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog
+from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog, Role, Permission, RolePermission
 from models.contactus import Contactus
 from models.analytics_model import PageVisit
 from datetime import datetime, timedelta
-from sqlalchemy import func, cast, String
+from sqlalchemy import func, cast, String, or_
 import bcrypt
 import secrets
 import os
+import re
 import time
 import bleach
 from werkzeug.utils import secure_filename
@@ -18,6 +19,9 @@ from flask_jwt_extended import (
 from extensions import limiter
 from utils.helpers import generate_listing_id, paginate
 from utils.supabase_storage import upload_file, delete_file
+from utils.mailer import password_reset_email, send_email_async, submission_confirmed_email, submission_rejected_email
+from utils.permissions import has_permission, is_admin, current_admin, admin_permissions, PERMISSION_CATALOG, require_permission
+from routes.settings_routes import is_setting_enabled
 import logging
 
 logger = logging.getLogger("realtyhub")
@@ -136,7 +140,20 @@ def login():
     if not data or "username" not in data or "password" not in data:
         return jsonify({"error": "Username and password required"}), 400
 
-    admin = Admin.query.filter_by(username=data["username"]).first()
+    identifier = (data["username"] or "").strip()
+    if not identifier:
+        return jsonify({"error": "Username and password required"}), 400
+
+    identifier_lower = identifier.lower()
+    admin = (
+        Admin.query.filter(
+            or_(
+                func.lower(Admin.username) == identifier_lower,
+                func.lower(Admin.email) == identifier_lower,
+                Admin.user_id == identifier,
+            )
+        ).first()
+    )
     if not admin:
         return jsonify({"error": "Invalid credentials"}), 401
 
@@ -150,6 +167,8 @@ def login():
         "admin_id": admin.id,
         "username": admin.username,
         "role": admin.role or "admin",
+        "role_name": admin.role_obj.name if admin.role_obj else (admin.role or "admin"),
+        "permissions": sorted(admin_permissions(admin)),
     })
     set_access_cookies(response, access_token)
 
@@ -169,7 +188,9 @@ def check_auth():
     admin = Admin.query.get(int(admin_id))
     if not admin:
         return jsonify({"error": "Unauthorized"}), 401
-    return jsonify({"admin_id": admin.id, "user_id": admin.user_id, "username": admin.username, "name": admin.name, "email": admin.email, "role": admin.role or "admin"})
+    return jsonify({"admin_id": admin.id, "user_id": admin.user_id, "username": admin.username, "name": admin.name, "email": admin.email, "role": admin.role or "admin",
+                    "role_name": admin.role_obj.name if admin.role_obj else (admin.role or "admin"),
+                    "permissions": sorted(admin_permissions(admin))})
 
 
 # =========================
@@ -236,7 +257,7 @@ def my_summary():
 # GET ALL PROPERTIES
 # =========================
 @admin_bp.route("/properties", methods=["GET"])
-@jwt_required()
+@require_permission("properties.view")
 def get_all_properties():
     page = request.args.get("page", 1)
     per_page = request.args.get("per_page", 50)
@@ -286,7 +307,7 @@ def get_all_properties():
 # GET SINGLE PROPERTY (ADMIN)
 # =========================
 @admin_bp.route("/property/<int:id>", methods=["GET"])
-@jwt_required()
+@require_permission("properties.view")
 def get_property(id):
     prop = Property.query.get(id)
     if not prop:
@@ -345,7 +366,7 @@ def get_property(id):
 # CREATE PROPERTY (ADMIN)
 # =========================
 @admin_bp.route("/property", methods=["POST"])
-@jwt_required()
+@require_permission("properties.create")
 def create_property():
     data = request.form if request.form else request.json
     if not data:
@@ -379,6 +400,9 @@ def create_property():
 
     admin_id = get_jwt_identity()
     admin = Admin.query.get(int(admin_id)) if admin_id else None
+    creator_is_admin = is_admin(admin)
+    auto_approve = not creator_is_admin and is_setting_enabled("auto_approve_properties")
+    approved_now = creator_is_admin or auto_approve
 
     prop = Property(
         title=title,
@@ -388,9 +412,9 @@ def create_property():
         location=data.get("location", ""),
         transaction_type=data.get("transaction_type", "sell"),
         property_type=data.get("property_type", "flat"),
-        status="approved",
-        is_active=True,
-        is_verified=True,
+        status="approved" if approved_now else "pending",
+        is_active=approved_now,
+        is_verified=True if creator_is_admin else False,
         uploaded_by=int(admin_id) if admin_id else None,
         overview_template_id=data.get("overview_template_id") or None,
         closing_template_id=data.get("closing_template_id") or None,
@@ -474,12 +498,16 @@ def update_property(id):
 
     current_id = int(get_jwt_identity())
     current = Admin.query.get(current_id)
-    if not current or (current.role != "admin" and prop.uploaded_by != current.id):
+    if not _can_manage_property(current, prop):
         return jsonify({"error": "Forbidden"}), 403
 
     data = request.form if request.form else request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
+
+    # Non-admins without approve permission cannot change moderation fields.
+    if not is_admin(current) and not has_permission(current, "properties.approve"):
+        data = {k: v for k, v in data.items() if k not in ("status", "is_featured", "is_verified")}
 
     prop.title = data.get("title", prop.title)
     prop.description = data.get("description", prop.description)
@@ -648,10 +676,12 @@ def update_property(id):
 @admin_bp.route("/property/<int:id>", methods=["DELETE"])
 @jwt_required()
 def delete_property(id):
-    _require_admin()
+    current = current_admin()
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
+    if not _can_manage_property(current, prop):
+        return jsonify({"error": "Forbidden"}), 403
     if not prop.is_closed:
         return jsonify({"error": "Property must be closed before deleting"}), 400
 
@@ -666,7 +696,7 @@ def delete_property(id):
 @admin_bp.route("/approve/<int:id>", methods=["POST"])
 @jwt_required()
 def approve_property(id):
-    _require_admin()
+    _require_permission("properties.approve")
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
@@ -675,13 +705,19 @@ def approve_property(id):
     _audit_property(id, "approved")
     db.session.commit()
     _log_activity("approve", "property", id)
+    if prop.owner_id and prop.owner:
+        send_email_async(
+            "Your property is now live - Nagpur Realty Hub",
+            [prop.owner.email],
+            submission_confirmed_email(prop, prop.owner.name),
+        )
     return jsonify({"message": "Property approved"})
 
 
 @admin_bp.route("/reject/<int:id>", methods=["POST"])
 @jwt_required()
 def reject_property(id):
-    _require_admin()
+    _require_permission("properties.approve")
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
@@ -690,16 +726,24 @@ def reject_property(id):
     _audit_property(id, "rejected")
     db.session.commit()
     _log_activity("reject", "property", id)
+    if prop.owner_id and prop.owner:
+        send_email_async(
+            "Property needs changes - Nagpur Realty Hub",
+            [prop.owner.email],
+            submission_rejected_email(prop, prop.owner.name),
+        )
     return jsonify({"message": "Property rejected"})
 
 
 @admin_bp.route("/close/<int:id>", methods=["POST"])
 @jwt_required()
 def close_property(id):
-    _require_admin()
+    current = current_admin()
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
+    if not _can_manage_property(current, prop):
+        return jsonify({"error": "Forbidden"}), 403
     prop.is_closed = True
     prop.is_active = False
     prop.closed_at = datetime.utcnow()
@@ -711,10 +755,12 @@ def close_property(id):
 @admin_bp.route("/reopen/<int:id>", methods=["POST"])
 @jwt_required()
 def reopen_property(id):
-    _require_admin()
+    current = current_admin()
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
+    if not _can_manage_property(current, prop):
+        return jsonify({"error": "Forbidden"}), 403
     prop.is_closed = False
     prop.is_active = True
     prop.closed_at = None
@@ -726,7 +772,7 @@ def reopen_property(id):
 @admin_bp.route("/feature/<int:id>", methods=["POST"])
 @jwt_required()
 def toggle_featured(id):
-    _require_admin()
+    _require_permission("properties.approve")
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
@@ -738,6 +784,7 @@ def toggle_featured(id):
 @admin_bp.route("/verify/<int:id>", methods=["POST"])
 @jwt_required()
 def toggle_verified(id):
+    _require_permission("properties.approve")
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
@@ -749,7 +796,7 @@ def toggle_verified(id):
 @admin_bp.route("/toggle-visibility/<int:id>", methods=["POST"])
 @jwt_required()
 def toggle_visibility(id):
-    _require_admin()
+    _require_permission("properties.approve")
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
@@ -787,7 +834,7 @@ def get_property_contacts(id):
 # NAVIGATION
 # =========================
 @admin_bp.route("/property-nav/<int:id>", methods=["GET"])
-@jwt_required()
+@require_permission("properties.view")
 def property_navigation(id):
     prev_property = Property.query.filter(Property.id < id).order_by(Property.id.desc()).first()
     next_property = Property.query.filter(Property.id > id).order_by(Property.id.asc()).first()
@@ -803,6 +850,9 @@ def property_navigation(id):
 @admin_bp.route("/upload-image/<int:property_id>", methods=["POST"])
 @jwt_required()
 def upload_image(property_id):
+    _, err_resp, err_code = _property_edit_guard(property_id)
+    if err_resp:
+        return err_resp, err_code
     if "image" not in request.files:
         return jsonify({"error": "No file"}), 400
     file = request.files["image"]
@@ -824,6 +874,9 @@ def upload_image(property_id):
 @admin_bp.route("/upload-images/<int:property_id>", methods=["POST"])
 @jwt_required()
 def upload_images(property_id):
+    _, err_resp, err_code = _property_edit_guard(property_id)
+    if err_resp:
+        return err_resp, err_code
     files = request.files.getlist("images")
     if not files:
         return jsonify({"error": "No files"}), 400
@@ -854,6 +907,9 @@ def upload_images(property_id):
 @admin_bp.route("/property/<int:property_id>/gallery-images", methods=["POST"])
 @jwt_required()
 def attach_gallery_images(property_id):
+    _, err_resp, err_code = _property_edit_guard(property_id)
+    if err_resp:
+        return err_resp, err_code
     data = request.get_json(silent=True) or {}
     urls = data.get("urls") or []
     if not urls or not isinstance(urls, list):
@@ -882,6 +938,10 @@ def delete_image(image_id):
     image = PropertyImage.query.get(image_id)
     if not image:
         return jsonify({"error": "Not found"}), 404
+    current = current_admin()
+    prop = Property.query.get(image.property_id) if image.property_id else None
+    if not prop or not _can_manage_property(current, prop):
+        return jsonify({"error": "Forbidden"}), 403
     try:
         from urllib.parse import urlparse
         old_path = urlparse(image.image_url).path
@@ -954,16 +1014,12 @@ def forgot_password():
     admin.reset_token_expiry = datetime.utcnow() + timedelta(minutes=15)
     db.session.commit()
 
-    from flask_mail import Message
-    from extensions import mail
     reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
-    sender = current_app.config.get("MAIL_SENDER", "info@nagpurrealtyhub.com")
-    try:
-        msg = Message(subject="Reset Your Password - Nagpur Realty Hub", sender=sender, recipients=[admin.email])
-        msg.html = f"<div style='font-family:Arial;padding:20px;'><h2 style='color:#0f4cba;'>Nagpur Realty Hub</h2><p>Click below to reset your password:</p><p><a href='{reset_link}' style='background:#0f4cba;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;'>Reset Password</a></p><p>This link expires in 15 minutes.</p></div>"
-        mail.send(msg)
-    except Exception as e:
-        logger.error("Failed to send password reset email: %s", e)
+    send_email_async(
+        "Reset Your Password - Nagpur Realty Hub",
+        [admin.email],
+        password_reset_email(reset_link),
+    )
 
     return jsonify({"message": "If the email is registered, a reset link has been sent"})
 
@@ -1010,6 +1066,7 @@ def get_profile():
         "id": admin.id, "username": admin.username, "email": admin.email,
         "name": admin.name, "phone": admin.phone, "whatsapp": admin.whatsapp,
         "profile_image": admin.profile_image, "role": admin.role,
+        "role_name": admin.role_obj.name if admin.role_obj else admin.role,
     })
 
 
@@ -1107,6 +1164,122 @@ def admin_delete_template(id):
 
 
 # =========================
+# ROLES & PERMISSIONS (RBAC)
+# =========================
+@admin_bp.route("/roles", methods=["GET"])
+@jwt_required()
+def list_roles():
+    _require_admin()
+    roles = Role.query.order_by(Role.sort_order.asc(), Role.id.asc()).all()
+    user_count_map = dict(
+        db.session.query(Admin.role_id, func.count(Admin.id))
+        .filter(Admin.role_id.isnot(None)).group_by(Admin.role_id).all()
+    )
+    return jsonify({"roles": [{
+        "id": r.id, "name": r.name, "slug": r.slug, "description": r.description,
+        "is_system": r.is_system, "sort_order": r.sort_order,
+        "permissions": sorted(p.code for p in r.permissions),
+        "user_count": user_count_map.get(r.id, 0),
+    } for r in roles]})
+
+
+@admin_bp.route("/permissions", methods=["GET"])
+@jwt_required()
+def list_permissions():
+    _require_admin()
+    modules = {}
+    for item in PERMISSION_CATALOG:
+        modules.setdefault(item["module"], []).append(item)
+    return jsonify({"modules": [
+        {"module": m, "permissions": entries} for m, entries in modules.items()
+    ]})
+
+
+def _resolve_role(role_val):
+    if role_val is None:
+        return None
+    s = str(role_val).strip()
+    if s.isdigit():
+        return Role.query.get(int(s))
+    return Role.query.filter(Role.slug == s).first() or Role.query.filter(Role.name == s).first()
+
+
+@admin_bp.route("/roles", methods=["POST"])
+@jwt_required()
+def create_role():
+    _require_admin()
+    data = request.json or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Role name is required"}), 400
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    if not slug:
+        return jsonify({"error": "Role name must contain letters"}), 400
+    if Role.query.filter_by(slug=slug).first():
+        return jsonify({"error": f"A role named '{name}' already exists"}), 409
+    role = Role(
+        name=name, slug=slug,
+        description=(data.get("description") or "").strip()[:255],
+        is_system=False, sort_order=Role.query.count(),
+    )
+    codes = data.get("permissions") or []
+    perm_map = {p.code: p for p in Permission.query.filter(Permission.code.in_(codes)).all()}
+    role.permissions = [perm_map[c] for c in codes if c in perm_map]
+    db.session.add(role)
+    db.session.commit()
+    _log_activity("created", "roles", role.id)
+    return jsonify({"id": role.id, "slug": role.slug, "message": "Role created"}), 201
+
+
+@admin_bp.route("/roles/<int:rid>", methods=["PUT"])
+@jwt_required()
+def update_role(rid):
+    _require_admin()
+    role = Role.query.get(rid)
+    if not role:
+        return jsonify({"error": "Role not found"}), 404
+    data = request.json or {}
+    if "name" in data:
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "Role name is required"}), 400
+        slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+        clash = Role.query.filter(Role.slug == slug, Role.id != rid).first()
+        if clash:
+            return jsonify({"error": f"A role named '{name}' already exists"}), 409
+        role.name, role.slug = name, slug
+        for a in role.admins:
+            a.role = slug
+    if "description" in data:
+        role.description = (data.get("description") or "").strip()[:255]
+    if "permissions" in data:
+        codes = data.get("permissions") or []
+        perm_map = {p.code: p for p in Permission.query.filter(Permission.code.in_(codes)).all()}
+        role.permissions = [perm_map[c] for c in codes if c in perm_map]
+    db.session.commit()
+    _log_activity("updated", "roles", role.id)
+    return jsonify({"message": "Role updated"})
+
+
+@admin_bp.route("/roles/<int:rid>", methods=["DELETE"])
+@jwt_required()
+def delete_role(rid):
+    _require_admin()
+    role = Role.query.get(rid)
+    if not role:
+        return jsonify({"error": "Role not found"}), 404
+    if role.is_system:
+        return jsonify({"error": "System roles cannot be deleted"}), 400
+    assigned = list(role.admins)
+    if assigned:
+        return jsonify({"error": f"Reassign or deactivate the {len(assigned)} user(s) using this role first"}), 400
+    db.session.delete(role)
+    db.session.commit()
+    _log_activity("deleted", "roles", role.id)
+    return jsonify({"message": "Role deleted"})
+
+
+# =========================
 # USER MANAGEMENT (admin-only)
 # =========================
 def _require_admin():
@@ -1117,6 +1290,36 @@ def _require_admin():
     return admin
 
 
+def _require_permission(code):
+    admin = current_admin()
+    if not has_permission(admin, code):
+        abort(403, description="Permission denied")
+    return admin
+
+
+def _can_manage_property(admin, prop):
+    """Admin, or user with edit permission, or owner of the listing (manage_own)."""
+    if not admin or not admin.is_active:
+        return False
+    if is_admin(admin):
+        return True
+    if has_permission(admin, "properties.edit"):
+        return True
+    if has_permission(admin, "properties.manage_own") and prop.uploaded_by == admin.id:
+        return True
+    return False
+
+
+def _property_edit_guard(property_id):
+    prop = Property.query.get(property_id)
+    if not prop:
+        return None, jsonify({"error": "Property not found"}), 404
+    current = current_admin()
+    if not _can_manage_property(current, prop):
+        return None, jsonify({"error": "Forbidden"}), 403
+    return prop, None, None
+
+
 @admin_bp.route("/users", methods=["GET"])
 @jwt_required()
 def list_users():
@@ -1124,7 +1327,9 @@ def list_users():
     users = Admin.query.order_by(Admin.created_at.desc()).all()
     return jsonify({"users": [{
         "id": u.id, "user_id": u.user_id, "username": u.username, "name": u.name, "email": u.email,
-        "role": u.role or "admin", "phone": u.phone, "is_active": u.is_active,
+        "role": u.role or "admin", "role_id": u.role_id,
+        "role_name": u.role_obj.name if u.role_obj else (u.role or "admin"),
+        "phone": u.phone, "is_active": u.is_active,
         "last_login": u.last_login.isoformat() if u.last_login else None,
         "created_at": u.created_at.isoformat() if u.created_at else None,
     } for u in users]})
@@ -1141,13 +1346,18 @@ def create_user():
         return jsonify({"error": "Username already exists"}), 409
     if Admin.query.filter_by(email=data["email"]).first():
         return jsonify({"error": "Email already exists"}), 409
-    role = data.get("role", "power_user")
-    if role not in ("admin", "power_user"):
-        return jsonify({"error": "Invalid role"}), 400
+    role_val = data.get("role")
+    role = _resolve_role(role_val)
+    if not role:
+        if role_val is None or str(role_val).strip().lower() in ("", "power_user"):
+            role = Role.query.filter_by(slug="agent").first()
+        if not role:
+            return jsonify({"error": "Invalid role"}), 400
     hashed = bcrypt.hashpw(data["password"].encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     user = Admin(
         username=data["username"], email=data["email"], name=data.get("name", ""),
-        password=hashed, role=role, phone=data.get("phone", ""), is_active=data.get("is_active", True),
+        password=hashed, role=role.slug, role_id=role.id, phone=data.get("phone", ""),
+        is_active=data.get("is_active", True),
     )
     user_id = (data.get("user_id") or "").strip()
     if user_id:
@@ -1160,7 +1370,7 @@ def create_user():
         user.user_id = f"EMP-{user.id:03d}"
         db.session.commit()
     _log_activity("created", "users", user.id)
-    return jsonify({"id": user.id, "user_id": user.user_id, "message": "User created"}), 201
+    return jsonify({"id": user.id, "user_id": user.user_id, "role": role.slug, "message": "User created"}), 201
 
 
 @admin_bp.route("/users/<int:id>", methods=["PUT"])
@@ -1192,9 +1402,11 @@ def update_user(id):
     if "phone" in data:
         user.phone = data["phone"]
     if "role" in data:
-        if data["role"] not in ("admin", "power_user"):
+        role = _resolve_role(data["role"])
+        if not role:
             return jsonify({"error": "Invalid role"}), 400
-        user.role = data["role"]
+        user.role = role.slug
+        user.role_id = role.id
     if "is_active" in data:
         user.is_active = data["is_active"]
     if "password" in data and data["password"]:

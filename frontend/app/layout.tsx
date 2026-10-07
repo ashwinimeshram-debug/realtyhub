@@ -6,6 +6,8 @@ import Footer from "@/components/Footer";
 import ThemeStyle from "@/components/ThemeStyle";
 import { ToastProvider } from "@/components/Toast";
 import { SettingsProvider } from "@/hooks/useSettings";
+import { OwnerAuthProvider } from "@/hooks/useOwnerAuth";
+import { ConfirmProvider } from "@/hooks/useConfirm";
 
 export default function RootLayout({
   children,
@@ -17,7 +19,9 @@ export default function RootLayout({
       <body className="flex flex-col min-h-screen">
         <ThemeStyle />
         <SettingsProvider>
+        <OwnerAuthProvider>
         <ToastProvider>
+        <ConfirmProvider>
 
         {/* Main Layout */}
         <LayoutWrapper>
@@ -32,7 +36,9 @@ export default function RootLayout({
         {/* Footer always at bottom */}
         <Footer />
 
+        </ConfirmProvider>
         </ToastProvider>
+        </OwnerAuthProvider>
         </SettingsProvider>
       </body>
     </html>

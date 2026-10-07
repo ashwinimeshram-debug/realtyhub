@@ -16,6 +16,7 @@ export default function ProfilePage() {
   const [whatsapp, setWhatsapp] = useState("");
   const [username, setUsername] = useState("");
   const [role, setRole] = useState("");
+  const [roleName, setRoleName] = useState("");
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -31,6 +32,7 @@ export default function ProfilePage() {
         setWhatsapp(res.data.whatsapp || "");
         setUsername(res.data.username || "");
         setRole(res.data.role || "");
+        setRoleName(res.data.role_name || "");
       })
       .catch(() => toast("Failed to load profile", "error"))
       .finally(() => setLoading(false));
@@ -136,7 +138,7 @@ export default function ProfilePage() {
                 {name || username}
               </h2>
               <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                {role === "admin" ? "Administrator" : "Power User"} · @{username}
+                {roleName || role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} · @{username}
               </p>
             </div>
           </div>

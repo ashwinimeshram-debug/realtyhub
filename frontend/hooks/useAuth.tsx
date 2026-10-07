@@ -3,15 +3,19 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import API from "@/lib/api";
 
+export interface AuthUser {
+  admin_id: number;
+  user_id: string | null;
+  username: string;
+  name: string;
+  email: string;
+  role: string;
+  role_name?: string;
+  permissions: string[];
+}
+
 interface AuthContextType {
-  user: {
-    admin_id: number;
-    user_id: string | null;
-    username: string;
-    name: string;
-    email: string;
-    role: "admin" | "power_user";
-  } | null;
+  user: AuthUser | null;
   loading: boolean;
   hasPermission: (key: string) => boolean;
   isAdmin: boolean;
@@ -21,19 +25,22 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-  hasPermission: () => true,
+  hasPermission: () => false,
   isAdmin: false,
   refresh: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthContextType["user"]>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUser = async () => {
     try {
       const res = await API.get("/admin/check-auth");
-      setUser(res.data);
+      setUser({
+        ...res.data,
+        permissions: Array.isArray(res.data?.permissions) ? res.data.permissions : [],
+      });
     } catch {
       setUser(null);
     } finally {
@@ -45,9 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchUser();
   }, []);
 
-  const hasPermission = (key: string) => {
-    if (key === "users") return user?.role === "admin";
-    return true;
+  const hasPermission = (code: string) => {
+    if (!user) return false;
+    if (user.role === "admin") return true;
+    return user.permissions.includes(code);
   };
 
   const isAdmin = user?.role === "admin";

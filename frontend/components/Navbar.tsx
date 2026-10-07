@@ -7,12 +7,14 @@ import API from "@/lib/api";
 import { backendAssetUrl } from "@/lib/api";
 import SearchBar from "./SearchBar";
 import { useSettings } from "@/hooks/useSettings";
+import { useOwnerAuth } from "@/hooks/useOwnerAuth";
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const navRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettings();
+  const { owner, logout } = useOwnerAuth();
 
   const siteName = settings.site_name || "";
   const siteLogo = settings.site_logo || "";
@@ -55,6 +57,18 @@ export default function Navbar() {
           <a href="/properties" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Properties</a>
           <a href="/about" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>About Us</a>
           <a href="/contact" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Contact Us</a>
+          {owner ? (
+            <div className="flex items-center gap-2">
+              <a href="/my-account" className="btn btn-sm" style={{ backgroundColor: "var(--primary)", color: "#ffffff", borderColor: "var(--primary)" }}>
+                My Account
+              </a>
+              <button onClick={() => logout()} className="text-sm hover:opacity-70 transition" style={{ color: "var(--primary)" }}>
+                Logout
+              </button>
+            </div>
+          ) : (
+            <a href="/login" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Sign In</a>
+          )}
           <a href="/post" className="btn btn-sm" style={{ backgroundColor: "var(--secondary)", color: "#ffffff", borderColor: "var(--secondary)" }}>
             Post Property
           </a>
@@ -106,6 +120,14 @@ export default function Navbar() {
           <a href="/properties" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Properties</a>
           <a href="/about" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>About Us</a>
           <a href="/contact" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Contact Us</a>
+          {owner ? (
+            <>
+              <a href="/my-account" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>My Account</a>
+              <button onClick={() => { logout(); closeAll(); }} className="block w-full text-left px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Logout</button>
+            </>
+          ) : (
+            <a href="/login" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Sign In</a>
+          )}
           <a href="/post" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition">Post Property</a>
         </div>
       )}

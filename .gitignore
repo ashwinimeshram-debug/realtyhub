@@ -35,6 +35,8 @@ backups/
 # Archives & logs
 *.zip
 *.log
+*.out
+*.err
 
 # Coverage / reports
 coverage/

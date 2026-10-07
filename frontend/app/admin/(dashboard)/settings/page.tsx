@@ -42,7 +42,7 @@ export default function SettingsPage() {
   return (
     <div className="p-3 md:p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-800">Settings</h1>
-      <p className="text-sm text-gray-500 mt-1 mb-4 md:mb-6">Configure site name, logo, brand colors, social links, and session settings</p>
+      <p className="text-sm text-gray-500 mt-1 mb-4 md:mb-6">Configure site name, logo, brand colors, social links, session, and email sending</p>
 
       {/* GENERAL */}
       <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
@@ -234,6 +234,104 @@ export default function SettingsPage() {
               {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* EMAIL (SMTP) */}
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Email (SMTP)</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
+          Used for sending password resets and owner/visitor notifications. For Gmail, use an
+          <span className="font-medium text-gray-700"> App Password</span> (enable 2-Step Verification first).
+        </p>
+
+        <label className="flex items-center gap-3 cursor-pointer mb-4">
+          <button
+            type="button"
+            onClick={() => handleChange("mail_enabled", settings.mail_enabled === "true" ? "false" : "true")}
+            className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+              settings.mail_enabled !== "false" ? "bg-blue-600" : "bg-gray-300"
+            }`}
+          >
+            <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+              settings.mail_enabled !== "false" ? "translate-x-5" : ""
+            }`} />
+          </button>
+          <span className="text-sm text-gray-700 font-medium">
+            {settings.mail_enabled !== "false" ? "Email sending enabled" : "Email sending disabled"}
+          </span>
+        </label>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">SMTP Server</label>
+            <input
+              type="text"
+              value={settings.mail_server || ""}
+              onChange={(e) => handleChange("mail_server", e.target.value)}
+              placeholder="smtp.gmail.com"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Port</label>
+            <input
+              type="number"
+              value={settings.mail_port || ""}
+              onChange={(e) => handleChange("mail_port", e.target.value)}
+              placeholder="587"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username (SMTP Login)</label>
+            <input
+              type="text"
+              value={settings.mail_username || ""}
+              onChange={(e) => handleChange("mail_username", e.target.value)}
+              placeholder="info@nagpurrealtyhub.com"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">App Password</label>
+            <input
+              type="password"
+              value={settings.mail_password || ""}
+              onChange={(e) => handleChange("mail_password", e.target.value)}
+              placeholder="Leave blank to keep the saved password"
+              autoComplete="new-password"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sender (From Address)</label>
+            <input
+              type="text"
+              value={settings.mail_sender || ""}
+              onChange={(e) => handleChange("mail_sender", e.target.value)}
+              placeholder="info@nagpurrealtyhub.com"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex items-end pb-1">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <button
+                type="button"
+                onClick={() => handleChange("mail_use_tls", settings.mail_use_tls !== "false" ? "false" : "true")}
+                className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+                  settings.mail_use_tls !== "false" ? "bg-blue-600" : "bg-gray-300"
+                }`}
+              >
+                <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+                  settings.mail_use_tls !== "false" ? "translate-x-5" : ""
+                }`} />
+              </button>
+              <span className="text-sm text-gray-700">
+                {settings.mail_use_tls !== "false" ? "Use STARTTLS (port 587)" : "No TLS"}
+              </span>
+            </label>
+          </div>
         </div>
       </div>
 

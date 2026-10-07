@@ -86,6 +86,8 @@ class Config:
     MAIL_USE_TLS = True
     MAIL_USERNAME = os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com")
     MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "your_app_password")
+    MAIL_SENDER = os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com")
+    MAIL_ENABLED = os.getenv("MAIL_ENABLED", "false").lower() in ("1", "true", "yes")
 
     RATELIMIT_DEFAULT = "200/minute"
     RATELIMIT_STORAGE_URI = "memory://"

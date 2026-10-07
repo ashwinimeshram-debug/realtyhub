@@ -107,7 +107,7 @@ function followUpBadge(dateStr: string | null): { label: string; bg: string; tex
 
 export default function LeadsPage() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [tab, setTab] = useState<TabMode>("active");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [archivedLeads, setArchivedLeads] = useState<Lead[]>([]);
@@ -117,11 +117,11 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
   const [executives, setExecutives] = useState<{ id: number; display_name: string; username: string }[]>([]);
-  const [assignFilter, setAssignFilter] = useState<"all" | "mine" | "unassigned">("all");
+  const [assignFilter, setAssignFilter] = useState<"all" | "mine" | "unassigned">(
+    isAdmin ? "all" : "unassigned"
+  );
   const [employeeFilter, setEmployeeFilter] = useState<number | null>(null);
   const [autoAssign, setAutoAssign] = useState(false);
-
-  const isAdmin = user?.role === "admin";
 
   const fetchStats = useCallback(async (userId?: number | null) => {
     try {
@@ -138,6 +138,7 @@ export default function LeadsPage() {
   const fetchLeads = async () => {
     try {
       const params = new URLSearchParams();
+      if (!isAdmin && assignFilter === "unassigned") params.set("scope", "unassigned");
       if (employeeFilter) params.set("assigned_to", String(employeeFilter));
       const res = await API.get(`/admin/leads${params.toString() ? `?${params}` : ""}`);
       setLeads(res.data?.items ?? []);
@@ -221,6 +222,18 @@ export default function LeadsPage() {
       }
     } catch (err: any) {
       toast(err.response?.data?.error || "Failed to assign lead", "error");
+    }
+  };
+
+  const handleClaim = async (leadId: number) => {
+    if (!user) return;
+    try {
+      await API.post(`/admin/leads/${leadId}/assign`, { user_id: user.admin_id });
+      toast("Lead claimed", "success");
+      setAssignFilter("mine");
+      fetchData();
+    } catch (err: any) {
+      toast(err.response?.data?.error || "Failed to claim lead", "error");
     }
   };
 
@@ -323,6 +336,27 @@ export default function LeadsPage() {
             </div>
           )}
 
+          {!isAdmin && (
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {[
+                { key: "mine" as const, label: "My Leads" },
+                { key: "unassigned" as const, label: "Unassigned" },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setAssignFilter(f.key)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                    assignFilter === f.key
+                      ? "bg-white shadow text-[var(--primary)]"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {isAdmin && (
             <select
               value={employeeFilter ?? ""}
@@ -345,16 +379,18 @@ export default function LeadsPage() {
       </div>
 
       {/* STATS CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 md:gap-3 mb-4 md:mb-6">
-        <StatCard label="New Today" value={stats.new_today} color="blue" />
-        <StatCard label="No Action" value={stats.no_action} color="gray" />
-        <StatCard label="Site Visits" value={stats.site_visits} color="amber" />
-        <StatCard label="Follow-up Overdue" value={stats.followups_overdue} color="red" />
-        <StatCard label="Follow-up Today" value={stats.followups_today} color="amber" />
-        <StatCard label="Follow-up Upcoming" value={stats.followups_upcoming} color="blue" />
-        <StatCard label="Won" value={stats.won_month} color="green" />
-        <StatCard label="Lost" value={stats.lost_month} color="red" />
-      </div>
+      {isAdmin && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 md:gap-3 mb-4 md:mb-6">
+          <StatCard label="New Today" value={stats.new_today} color="blue" />
+          <StatCard label="No Action" value={stats.no_action} color="gray" />
+          <StatCard label="Site Visits" value={stats.site_visits} color="amber" />
+          <StatCard label="Follow-up Overdue" value={stats.followups_overdue} color="red" />
+          <StatCard label="Follow-up Today" value={stats.followups_today} color="amber" />
+          <StatCard label="Follow-up Upcoming" value={stats.followups_upcoming} color="blue" />
+          <StatCard label="Won" value={stats.won_month} color="green" />
+          <StatCard label="Lost" value={stats.lost_month} color="red" />
+        </div>
+      )}
 
       {/* TABS */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4 md:mb-6">
@@ -362,7 +398,7 @@ export default function LeadsPage() {
           {([
             { key: "active" as TabMode, label: "Active Pipeline" },
             { key: "followups" as TabMode, label: "Follow-ups" },
-            { key: "archived" as TabMode, label: "Archived" },
+            ...(isAdmin ? [{ key: "archived" as TabMode, label: "Archived" }] : []),
           ]).map((t) => (
             <button
               key={t.key}
@@ -398,6 +434,7 @@ export default function LeadsPage() {
           leads={filteredLeads}
           onLeadClick={openLeadDetail}
           onRefresh={fetchLeads}
+          onClaim={!isAdmin ? handleClaim : undefined}
         />
       )}
 
@@ -440,10 +477,12 @@ function PipelineView({
   leads,
   onLeadClick,
   onRefresh,
+  onClaim,
 }: {
   leads: Lead[];
   onLeadClick: (id: number) => void;
   onRefresh: () => void;
+  onClaim?: (id: number) => void;
 }) {
   const [overrideStage, setOverrideStage] = useState<Stage | null>(null);
   const sensors = useSensors(
@@ -513,6 +552,7 @@ function PipelineView({
                         key={lead.id}
                         lead={lead}
                         onClick={() => onLeadClick(lead.id)}
+                        onClaim={onClaim}
                       />
                     ))}
                   </div>
@@ -530,7 +570,7 @@ function PipelineView({
 // =====================
 // PIPELINE CARD
 // =====================
-function PipelineCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+function PipelineCard({ lead, onClick, onClaim }: { lead: Lead; onClick: () => void; onClaim?: (id: number) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id });
 
@@ -576,6 +616,14 @@ function PipelineCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
           </span>
         )}
       </div>
+      {onClaim && !lead.assigned_to && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClaim(lead.id); }}
+          className="mt-2 w-full bg-[var(--primary)] hover:opacity-90 text-white text-xs font-medium py-1.5 rounded-lg transition"
+        >
+          Claim This Lead
+        </button>
+      )}
     </div>
   );
 }

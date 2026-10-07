@@ -194,7 +194,7 @@ export default function AdminLoginPage() {
         <input
           type="text"
           name="username"
-          placeholder="Username"
+          placeholder="Username, Email or User ID"
           value={form.username}
           onChange={(event) =>
             setForm({ ...form, username: event.target.value })

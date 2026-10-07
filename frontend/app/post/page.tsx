@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import API from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { useOwnerAuth } from "@/hooks/useOwnerAuth";
 import { processImages } from "@/lib/imageProcessor";
 import ImageUploader from "@/components/ImageUploader";
 import DynamicField, { type FieldDef } from "@/components/post-property/DynamicField";
@@ -35,8 +38,22 @@ function fillTemplate(text: string, vars: Record<string, string>, typeNames: Rec
   });
 }
 
-export default function PostProperty() {
+interface ExistingImage {
+  id: number;
+  image_url: string;
+  order: number;
+}
+
+function PostPropertyForm() {
   const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { owner, loading: authLoading } = useOwnerAuth();
+
+  const editParam = searchParams.get("edit");
+  const editId = editParam && /^\d+$/.test(editParam) ? Number(editParam) : null;
+  const isEdit = !!editId;
+
   const [form, setForm] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
   const [submitted, setSubmitted] = useState(false);
@@ -57,6 +74,19 @@ export default function PostProperty() {
   const [selectedClosingId, setSelectedClosingId] = useState<number | null>(null);
   const [selectedChips, setSelectedChips] = useState<string[]>([]);
   const [presetFeatures, setPresetFeatures] = useState<Array<{ id: number; label: string; sentence: string }>>([]);
+
+  const [existingImages, setExistingImages] = useState<ExistingImage[]>([]);
+  const [removeImageIds, setRemoveImageIds] = useState<number[]>([]);
+  const [detailLoading, setDetailLoading] = useState(isEdit);
+  const [detailError, setDetailError] = useState("");
+
+  const [editPreload, setEditPreload] = useState<{
+    fieldValues: Record<string, string>;
+    featureIds: number[];
+    titleId: number | null;
+    overviewId: number | null;
+    closingId: number | null;
+  } | null>(null);
 
   const typeNames = useMemo(() => Object.fromEntries(propertyTypes.map((t) => [t.value, t.name])), [propertyTypes]);
 
@@ -116,14 +146,65 @@ export default function PostProperty() {
   }, [form.property_type, lang]);
 
   useEffect(() => {
-    if (form.property_type && dynamicFields.length > 0) {
+    if (form.property_type && dynamicFields.length > 0 && !editPreload) {
       setFieldValue({});
       setSelectedTitleTmplId(null);
       setSelectedOverviewId(null);
       setSelectedClosingId(null);
       setSelectedChips([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.property_type]);
+
+  // Apply edit-mode prefill once dynamic fields + features have loaded
+  useEffect(() => {
+    if (!editPreload) return;
+    if (dynamicFields.length === 0 || presetFeatures.length === 0) return;
+    const chips = editPreload.featureIds
+      .map((id) => presetFeatures.find((f) => f.id === id)?.label)
+      .filter((l): l is string => !!l);
+    setFieldValue(editPreload.fieldValues);
+    setSelectedChips(chips);
+    setSelectedTitleTmplId(editPreload.titleId);
+    setSelectedOverviewId(editPreload.overviewId);
+    setSelectedClosingId(editPreload.closingId);
+    setEditPreload(null);
+  }, [editPreload, dynamicFields, presetFeatures]);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    (async () => {
+      try {
+        const res = await API.get(`/owner/properties/${editId}`);
+        const d = res.data;
+        setExistingImages((d.images || []).map((img: ExistingImage) => ({ id: img.id, image_url: img.image_url, order: img.order })));
+        setForm({
+          title: d.title || "",
+          description: d.description || "",
+          price: d.price != null ? String(d.price) : "",
+          price_text: d.price_text || "*",
+          location: d.location || "",
+          transaction_type: d.transaction_type || "",
+          property_type: d.property_type || "",
+          name: d.contact?.name || owner?.name || "",
+          email: d.contact?.email || owner?.email || "",
+          mobile: d.contact?.mobile || owner?.mobile || "",
+        });
+        setEditPreload({
+          fieldValues: Object.fromEntries((d.field_values || []).map((fv: any) => [fv.field_key, fv.field_value])),
+          featureIds: d.feature_ids || [],
+          titleId: d.title_template_id ?? null,
+          overviewId: d.overview_template_id ?? null,
+          closingId: d.closing_template_id ?? null,
+        });
+      } catch (err: any) {
+        setDetailError(err?.response?.data?.error || "Could not load property details");
+      } finally {
+        setDetailLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, editId]);
 
   const parseFloor = (v: string) => {
     const m = v.match(/(\d+)/);
@@ -156,6 +237,11 @@ export default function PostProperty() {
     setFieldValue((prev) => ({ ...prev, [key]: value }));
   }, [fieldValues, toast]);
 
+  const handleDeleteExisting = (imageId: number) => {
+    setExistingImages((prev) => prev.filter((img) => img.id !== imageId));
+    setRemoveImageIds((prev) => [...prev, imageId]);
+  };
+
   const handleClear = () => {
     setForm({});
     setFiles([]);
@@ -167,9 +253,15 @@ export default function PostProperty() {
     setSelectedOverviewId(null);
     setSelectedClosingId(null);
     setSelectedChips([]);
+    setExistingImages([]);
+    setRemoveImageIds([]);
   };
 
   const handleSubmit = async () => {
+    if (owner && !owner.is_verified) {
+      toast("Please verify your email before posting a property", "warning");
+      return;
+    }
     if (!form.name?.trim()) { toast("Please enter your name", "warning"); return; }
     if (form.mobile?.trim()) {
       const nums = form.mobile.split(",").map(s => s.trim()).filter(Boolean);
@@ -235,11 +327,22 @@ export default function PostProperty() {
 
       files.forEach((file) => { formData.append("images", file); });
 
-      const res = await API.post("/submit-property", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setResult(res.data);
-      setSubmitted(true);
+      if (isEdit) {
+        if (removeImageIds.length > 0) {
+          formData.append("remove_image_ids", JSON.stringify(removeImageIds));
+        }
+        const res = await API.put(`/owner/properties/${editId}`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        toast(res.data.status === "pending" ? "Property updated. It is pending review again." : "Property updated", "success");
+        router.push("/my-account");
+      } else {
+        const res = await API.post("/submit-property", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        setResult(res.data);
+        setSubmitted(true);
+      }
     } catch (err: any) {
       const msg = err.response?.data?.error || err.message || "Something went wrong. Please try again.";
       toast(msg, "error");
@@ -247,6 +350,41 @@ export default function PostProperty() {
       setLoading(false);
     }
   };
+
+  if (authLoading) {
+    return <div className="min-h-[50vh] text-center py-20 text-gray-400">Loading...</div>;
+  }
+
+  if (!owner) {
+    return (
+      <div className="max-w-md mx-auto min-h-[50vh] flex flex-col items-center justify-center px-4 py-12 text-center">
+        <h1 className="text-2xl font-bold mb-2" style={{ color: "var(--text-dark)" }}>Post Your Property</h1>
+        <p className="text-gray-500 text-sm mb-6">
+          {isEdit
+            ? "Sign in to edit this property."
+            : "You need an owner account to list your property on the site."}
+        </p>
+        <div className="flex gap-3">
+          <Link href={`/login?next=${encodeURIComponent(isEdit ? `/post?edit=${editId}` : "/post")}`} className="btn btn-primary px-8">Sign In</Link>
+          <Link href="/register" className="btn btn-ghost px-6">Register</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (detailLoading) {
+    return <div className="min-h-[50vh] text-center py-20 text-gray-400">Loading property...</div>;
+  }
+
+  if (detailError) {
+    return (
+      <div className="max-w-md mx-auto min-h-[50vh] flex flex-col items-center justify-center px-4 py-12 text-center">
+        <h1 className="text-xl font-bold mb-2 text-red-600">Could not load property</h1>
+        <p className="text-gray-500 text-sm mb-6">{detailError}</p>
+        <Link href="/my-account" className="btn btn-primary">Back to My Account</Link>
+      </div>
+    );
+  }
 
   if (submitted && result) {
     return (
@@ -276,9 +414,22 @@ export default function PostProperty() {
     <div className="min-h-screen py-10 md:py-14 px-4 md:px-6 lg:px-10" style={{ backgroundColor: "var(--bg-page)" }}>
 
       <div className="max-w-6xl mx-auto mb-6 text-center">
-        <h1 className="text-3xl md:text-4xl font-extrabold mb-2" style={{ color: "var(--text-dark)" }}>Post Your Property</h1>
-        <p className="text-sm md:text-base" style={{ color: "var(--text-muted)" }}>Fill in the details below to list your property on {siteName}</p>
+        <h1 className="text-3xl md:text-4xl font-extrabold mb-2" style={{ color: "var(--text-dark)" }}>
+          {isEdit ? "Edit Property" : "Post Your Property"}
+        </h1>
+        <p className="text-sm md:text-base" style={{ color: "var(--text-muted)" }}>
+          {isEdit
+            ? "Update your listing below. Approved properties go back to pending review after an edit."
+            : `Fill in the details below to list your property on ${siteName}`}
+        </p>
       </div>
+
+      {!owner.is_verified && (
+        <div className="max-w-4xl mx-auto mb-5 text-amber-700 text-sm bg-amber-50 border border-amber-200 p-4 rounded-xl">
+          Please verify your email address to {isEdit ? "save changes" : "post properties"}.{" "}
+          <Link href="/login" className="font-medium underline">Verify from your account</Link>
+        </div>
+      )}
 
       <div className="max-w-4xl mx-auto">
         <div className="rounded-2xl bg-white shadow-lg border border-gray-100" style={{ borderRadius: "16px" }}>
@@ -333,7 +484,6 @@ export default function PostProperty() {
                   title="Features, Amenities & Highlights"
                 />
 
-                {/* Preset amenity chips */}
                 <div className="mb-5">
                   <label className="block text-sm font-semibold mb-2" style={{ color: "var(--text-dark)" }}>Key Features</label>
                   <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Select features — they will be added as descriptive sentences in your listing.</p>
@@ -355,7 +505,6 @@ export default function PostProperty() {
                   </div>
                 </div>
 
-                {/* Template dropdowns */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div>
                     <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Overview</label>
@@ -416,7 +565,7 @@ export default function PostProperty() {
                 <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>For multiple numbers, separate with comma</p>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Email Address <span className="ml-1.5 text-xs font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span></label>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Email Address <span className="ml-1.5 text-xs font-normal" style={{ color: "var(--text-muted)" }}>(optional — notifies you of enquiries)</span></label>
                 <input className="form-input" placeholder="you@example.com" value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </div>
             </div>
@@ -427,7 +576,6 @@ export default function PostProperty() {
               title="Property Title & Description"
             />
             <div className="space-y-4 mb-6">
-              {/* Title */}
               <div>
                 <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Property Title <span className="text-red-500">*</span></label>
                 {(templates.title || []).length > 0 && (
@@ -459,7 +607,6 @@ export default function PostProperty() {
                 />
               </div>
 
-              {/* Description */}
               <div>
                 <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Description</label>
                 <textarea
@@ -482,7 +629,13 @@ export default function PostProperty() {
               icon={<svg className="w-5 h-5" style={{ color: "var(--primary)" }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
               title="Property Images"
             />
-            <ImageUploader files={files} onFilesChange={setFiles} />
+            <ImageUploader
+              files={files}
+              onFilesChange={setFiles}
+              existingImages={existingImages}
+              onDeleteExisting={handleDeleteExisting}
+              disabled={false}
+            />
 
           </div>
         </div>
@@ -491,13 +644,32 @@ export default function PostProperty() {
 
       {/* ──── Action Buttons ──── */}
       <div className="max-w-7xl mx-auto mt-6 flex items-center justify-end gap-3 pt-5 border-t border-gray-200">
-        <button onClick={handleClear} className="btn btn-ghost">Clear Form</button>
-        <button onClick={handleSubmit} disabled={loading || submitted} className="btn btn-primary">
-          {loading ? (
-            <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Submitting...</>
-          ) : "Submit Property"}
-        </button>
+        {isEdit ? (
+          <>
+            <Link href="/my-account" className="btn btn-ghost">Cancel</Link>
+            <button onClick={handleSubmit} disabled={loading || !owner.is_verified} className="btn btn-primary">
+              {loading ? "Saving..." : "Save Changes"}
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={handleClear} className="btn btn-ghost">Clear Form</button>
+            <button onClick={handleSubmit} disabled={loading || submitted || !owner.is_verified} className="btn btn-primary">
+              {loading ? (
+                <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Submitting...</>
+              ) : "Submit Property"}
+            </button>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+export default function PostProperty() {
+  return (
+    <Suspense fallback={<div className="min-h-[50vh] text-center py-20 text-gray-400">Loading...</div>}>
+      <PostPropertyForm />
+    </Suspense>
   );
 }

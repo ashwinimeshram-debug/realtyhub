@@ -19,7 +19,14 @@ interface User {
   created_at: string | null;
 }
 
-const emptyForm = { user_id: "", username: "", email: "", name: "", password: "", phone: "", role: "power_user" };
+interface RoleOption {
+  id: number;
+  name: string;
+  slug: string;
+  system: boolean;
+}
+
+const emptyForm = { user_id: "", username: "", email: "", name: "", password: "", phone: "", role: "" };
 
 export default function UsersPage() {
   const { confirm } = useConfirm();
@@ -31,6 +38,13 @@ export default function UsersPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
+
+  const loadRoles = () => {
+    API.get("/admin/roles")
+      .then((r) => setRoles(r.data.roles || []))
+      .catch(() => {});
+  };
 
   const load = () => {
     API.get("/admin/users")
@@ -39,7 +53,7 @@ export default function UsersPage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); loadRoles(); }, []);
 
   const openAdd = () => { setEditingId(null); setForm(emptyForm); setShowForm(true); };
   const openEdit = (u: User) => { setEditingId(u.id); setForm({ user_id: u.user_id || "", username: u.username, email: u.email, name: u.name || "", password: "", phone: u.phone || "", role: u.role }); setShowForm(true); };
@@ -47,6 +61,7 @@ export default function UsersPage() {
   const handleSave = async () => {
     if (!form.username.trim() || !form.email.trim()) { toast("Username and email are required", "error"); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) { toast("Please enter a valid email address", "warning"); return; }
+    if (!form.role) { toast("Please select a role", "error"); return; }
     if (!editingId && !form.password.trim()) { toast("Password is required", "error"); return; }
     setSaving(true);
     try {
@@ -90,12 +105,18 @@ export default function UsersPage() {
     }
   };
 
+  const roleLabel = (slug: string) => {
+    const r = roles.find((x) => x.slug === slug);
+    if (r) return r.name;
+    return slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage admin and power user accounts</p>
+          <p className="text-sm text-gray-500 mt-1">Manage staff accounts and their roles</p>
         </div>
         <button onClick={openAdd} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium">
           + Add User
@@ -131,7 +152,7 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${u.role === "admin" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
-                      {u.role === "admin" ? "Admin" : "Power User"}
+                      {roleLabel(u.role)}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -185,8 +206,10 @@ export default function UsersPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
                 <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                  <option value="admin">Admin</option>
-                  <option value="power_user">Power User</option>
+                  <option value="">Select role...</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.slug}>{r.name}</option>
+                  ))}
                 </select>
               </div>
               <div>
