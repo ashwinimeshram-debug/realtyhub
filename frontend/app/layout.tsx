@@ -1,5 +1,4 @@
 import "./globals.css";
-import "@fortawesome/fontawesome-free/css/all.min.css";
 import LayoutWrapper from "@/components/LayoutWrapper";
 import LocationChips from "@/components/LocationChips";
 import Footer from "@/components/Footer";

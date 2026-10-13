@@ -493,7 +493,9 @@ def location_counts():
         Property.status == "approved", Property.is_active == True, Property.is_closed == False,
         _owner_visible_condition(),
     ).group_by(Property.location).order_by(func.count(Property.id).desc()).all()
-    return jsonify([{"name": r[0], "count": r[1]} for r in rows if r[0]])
+    resp = jsonify([{"name": r[0], "count": r[1]} for r in rows if r[0]])
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
 
 
 # =========================

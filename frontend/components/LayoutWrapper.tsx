@@ -39,10 +39,11 @@ export default function LayoutWrapper({
 
   const isAdminRoute = pathname.startsWith("/admin");
 
-  // Track public page visits with traffic source
+  // Track public page visits with traffic source (deferred until the browser is idle)
   useEffect(() => {
     if (isAdminRoute) return;
-    const timer = setTimeout(() => {
+
+    const send = () => {
       const params = new URLSearchParams(window.location.search);
       API.post("/analytics/visit", {
         page_url: pathname,
@@ -51,8 +52,20 @@ export default function LayoutWrapper({
         utm_medium: params.get("utm_medium") || null,
         utm_campaign: params.get("utm_campaign") || null,
       }).catch(() => {});
-    }, 500);
-    return () => clearTimeout(timer);
+    };
+
+    const ric = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+
+    if (typeof ric.requestIdleCallback === "function") {
+      const handle = ric.requestIdleCallback(send, { timeout: 3000 });
+      return () => ric.cancelIdleCallback?.(handle);
+    }
+
+    const handle = window.setTimeout(send, 1200);
+    return () => clearTimeout(handle);
   }, [pathname, isAdminRoute]);
 
   return (

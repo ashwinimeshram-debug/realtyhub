@@ -40,7 +40,9 @@ def public_get_settings():
     PUBLIC_PREFIXES = ("site_", "section_", "hero_", "page_", "contact_", "social_")
     all_settings = get_all_settings()
     safe = {k: v for k, v in all_settings.items() if k.startswith(PUBLIC_PREFIXES) or k in ("site_name", "site_logo", "allow_public_post")}
-    return jsonify(safe)
+    resp = jsonify(safe)
+    resp.headers["Cache-Control"] = "public, max-age=60"
+    return resp
 
 
 @settings_bp.route("/admin/settings", methods=["GET"])
