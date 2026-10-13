@@ -9,6 +9,7 @@ import { useOwnerAuth } from "@/hooks/useOwnerAuth";
 import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/hooks/useConfirm";
 import { encodePropertyId } from "@/lib/api";
+import OwnerLeadsBoard from "@/components/owner/OwnerLeadsBoard";
 
 interface MyProperty {
   id: number;
@@ -24,18 +25,6 @@ interface MyProperty {
   property_type: string | null;
   image: string | null;
   lead_count: number;
-  created_at: string | null;
-}
-
-interface MyLead {
-  id: number;
-  property_id: number;
-  property_title: string | null;
-  listing_id: string | null;
-  name: string;
-  email: string | null;
-  mobile: string | null;
-  stage: string | null;
   created_at: string | null;
 }
 
@@ -68,7 +57,6 @@ export default function MyAccountPage() {
 
   const [tab, setTab] = useState<"properties" | "leads">("properties");
   const [properties, setProperties] = useState<MyProperty[]>([]);
-  const [leads, setLeads] = useState<MyLead[]>([]);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
@@ -84,23 +72,10 @@ export default function MyAccountPage() {
     }
   }, [toast]);
 
-  const loadLeads = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await API.get("/owner/leads");
-      setLeads(res.data);
-    } catch (err: any) {
-      toast(err?.response?.data?.error || "Failed to load connect requests", "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
-
   useEffect(() => {
     if (!owner) return;
     if (tab === "properties") loadProperties();
-    else loadLeads();
-  }, [owner, tab, loadProperties, loadLeads]);
+  }, [owner, tab, loadProperties]);
 
   const handleClose = async (p: MyProperty) => {
     const ok = await confirm({
@@ -205,7 +180,7 @@ export default function MyAccountPage() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "leads" ? "text-white" : "text-gray-600 hover:bg-gray-50"}`}
             style={tab === "leads" ? { backgroundColor: "var(--primary)" } : {}}
           >
-            Connect Requests
+            Leads
           </button>
         </div>
 
@@ -284,54 +259,7 @@ export default function MyAccountPage() {
             </div>
           </>
         ) : (
-          <>
-            {loading && <p className="text-gray-400 text-sm py-6">Loading connect requests...</p>}
-            {!loading && leads.length === 0 && (
-              <div className="bg-white rounded-xl border border-gray-100 p-10 text-center shadow-sm">
-                <p className="text-gray-500 text-sm">
-                  No connect requests yet. When a visitor shows interest in your property,
-                  their contact details will appear here and you&apos;ll get an email.
-                </p>
-              </div>
-            )}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 text-left" style={{ color: "var(--text-muted)" }}>
-                    <th className="px-4 py-3 font-medium">Property</th>
-                    <th className="px-4 py-3 font-medium">Name</th>
-                    <th className="px-4 py-3 font-medium">Mobile</th>
-                    <th className="px-4 py-3 font-medium">Email</th>
-                    <th className="px-4 py-3 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.map((l) => (
-                    <tr key={l.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-3">
-                        <div className="font-medium" style={{ color: "var(--text-dark)" }}>{l.property_title || "-"}</div>
-                        <div className="text-xs text-gray-400">{l.listing_id || ""}</div>
-                      </td>
-                      <td className="px-4 py-3">{l.name}</td>
-                      <td className="px-4 py-3">
-                        {l.mobile ? (
-                          <a href={`tel:${l.mobile}`} className="text-[var(--primary)] hover:underline">{l.mobile}</a>
-                        ) : "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {l.email ? (
-                          <a href={`mailto:${l.email}`} className="text-[var(--primary)] hover:underline break-all">{l.email}</a>
-                        ) : "-"}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                        {l.created_at ? new Date(l.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+          <OwnerLeadsBoard />
         )}
       </div>
     </div>

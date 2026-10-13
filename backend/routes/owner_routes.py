@@ -20,7 +20,7 @@ from werkzeug.utils import secure_filename
 from extensions import db, limiter
 from routes.settings_routes import is_setting_enabled
 from models.models import (
-    Lead, Owner, Property, PropertyContact, PropertyFeature,
+    Lead, LeadHistory, Owner, Property, PropertyContact, PropertyFeature,
     PropertyImage, PropertyTypeField, PropertyValue, PresetFeature,
 )
 from utils.mailer import frontend_url, password_reset_email, send_email_async, verification_email
@@ -580,18 +580,28 @@ def reopen_my_property(id):
 
 
 # =========================
-# CONNECT REQUESTS
+# LEADS / CONNECT REQUESTS
 # =========================
-@owner_bp.route("/leads", methods=["GET"])
-@owner_required
-def my_leads():
-    leads = (
+VALID_STAGES = {"NEW", "CONTACTED", "SITE_VISIT", "NEGOTIATION", "CLOSED"}
+
+
+def _own_lead_or_404(lead_id):
+    lead = (
         Lead.query.join(Property, Lead.property_id == Property.id)
-        .filter(Property.owner_id == g.owner.id)
-        .order_by(Lead.created_at.desc())
-        .all()
+        .filter(Lead.id == lead_id, Property.owner_id == g.owner.id)
+        .first()
     )
-    return jsonify([{
+    return lead
+
+
+def _owner_leads_query():
+    return Lead.query.join(Property, Lead.property_id == Property.id).filter(
+        Property.owner_id == g.owner.id
+    )
+
+
+def _owner_lead_dict(lead):
+    return {
         "id": lead.id,
         "property_id": lead.property_id,
         "property_title": lead.property.title if lead.property else None,
@@ -600,6 +610,194 @@ def my_leads():
         "email": lead.email,
         "mobile": lead.mobile,
         "source": lead.source,
-        "stage": lead.stage,
+        "stage": lead.stage or "NEW",
+        "lead_status": lead.lead_status or "ACTIVE",
+        "rejection_reason": lead.rejection_reason,
+        "notes": lead.notes,
+        "follow_up_date": lead.follow_up_at.isoformat() if lead.follow_up_at else None,
+        "archived_at": lead.archived_at.isoformat() if lead.archived_at else None,
         "created_at": lead.created_at.isoformat() if lead.created_at else None,
-    } for lead in leads])
+    }
+
+
+def _owner_lead_detail(lead):
+    detail = _owner_lead_dict(lead)
+    history = (
+        LeadHistory.query.filter_by(lead_id=lead.id)
+        .order_by(LeadHistory.created_at.desc())
+        .all()
+    )
+    detail["history"] = [{
+        "id": h.id,
+        "previous_status": None,
+        "new_status": None,
+        "remarks": h.remarks,
+        "interaction_type": h.type,
+        "follow_up_date": h.followup_date.isoformat() if h.followup_date else None,
+        "created_at": h.created_at.isoformat() if h.created_at else None,
+    } for h in history]
+    return detail
+
+
+def _parse_followup_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        try:
+            return datetime.strptime(str(value), "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return None
+
+
+@owner_bp.route("/leads", methods=["GET"])
+@owner_required
+def my_leads():
+    query = _owner_leads_query().filter(Lead.archived_at.is_(None))
+    stage = request.args.get("stage")
+    if stage in VALID_STAGES:
+        query = query.filter(Lead.stage == stage)
+    leads = query.order_by(Lead.created_at.desc()).all()
+    return jsonify([_owner_lead_dict(lead) for lead in leads])
+
+
+@owner_bp.route("/leads/archived", methods=["GET"])
+@owner_required
+def my_archived_leads():
+    search = request.args.get("search", "").strip()
+    query = _owner_leads_query().filter(Lead.archived_at.isnot(None))
+    if search:
+        like = f"%{search}%"
+        query = query.filter(db.or_(
+            Lead.name.ilike(like), Lead.email.ilike(like), Lead.mobile.ilike(like)
+        ))
+    leads = query.order_by(Lead.archived_at.desc()).all()
+    return jsonify([_owner_lead_dict(lead) for lead in leads])
+
+
+@owner_bp.route("/leads/followups", methods=["GET"])
+@owner_required
+def my_lead_followups():
+    owned_ids = [row[0] for row in db.session.query(Lead.id).join(
+        Property, Lead.property_id == Property.id
+    ).filter(Property.owner_id == g.owner.id).all()]
+    if not owned_ids:
+        return jsonify([])
+    history = (
+        LeadHistory.query.filter(
+            LeadHistory.lead_id.in_(owned_ids),
+            LeadHistory.followup_date.isnot(None),
+        ).order_by(LeadHistory.followup_date.asc()).limit(500).all()
+    )
+    results = []
+    for h in history:
+        lead = Lead.query.get(h.lead_id)
+        if not lead:
+            continue
+        results.append({
+            "id": h.id,
+            "lead_id": h.lead_id,
+            "type": h.type,
+            "remarks": h.remarks,
+            "followup_date": h.followup_date.isoformat() if h.followup_date else None,
+            "lead_name": lead.name,
+            "lead_mobile": lead.mobile,
+            "lead_email": lead.email,
+            "source": lead.source,
+            "stage": lead.stage or "NEW",
+            "lead_status": lead.lead_status or "ACTIVE",
+            "property_title": lead.property.title if lead.property else None,
+        })
+    return jsonify(results)
+
+
+@owner_bp.route("/leads/<int:id>", methods=["GET"])
+@owner_required
+def my_lead_detail(id):
+    lead = _own_lead_or_404(id)
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    return jsonify(_owner_lead_detail(lead))
+
+
+@owner_bp.route("/leads/<int:id>/stage", methods=["PATCH"])
+@owner_required
+def update_my_lead_stage(id):
+    lead = _own_lead_or_404(id)
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    data = request.json or {}
+    if data.get("stage") in VALID_STAGES:
+        lead.stage = data["stage"]
+    if "lead_status" in data:
+        lead.lead_status = data["lead_status"]
+    if "follow_up_at" in data:
+        lead.follow_up_at = _parse_followup_date(data["follow_up_at"])
+    db.session.add(LeadHistory(
+        lead_id=id, type="System Note",
+        remarks=f"Stage changed to {lead.stage}",
+    ))
+    db.session.commit()
+    return jsonify({"message": "Stage updated", "stage": lead.stage})
+
+
+@owner_bp.route("/leads/<int:id>/interactions", methods=["POST"])
+@owner_required
+def add_my_lead_interaction(id):
+    lead = _own_lead_or_404(id)
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    data = request.json or {}
+    followup_date = _parse_followup_date(data.get("follow_up_date"))
+    db.session.add(LeadHistory(
+        lead_id=id,
+        type=data.get("interaction_type") or data.get("type") or "System Note",
+        remarks=data.get("remarks"),
+        followup_date=followup_date,
+    ))
+    if data.get("stage") in VALID_STAGES:
+        lead.stage = data["stage"]
+    if data.get("lead_status"):
+        lead.lead_status = data["lead_status"]
+    if followup_date:
+        lead.follow_up_at = followup_date
+    db.session.commit()
+    return jsonify({"message": "Interaction added"}), 201
+
+
+@owner_bp.route("/leads/<int:id>/not-interested", methods=["POST"])
+@owner_required
+def mark_my_lead_not_interested(id):
+    lead = _own_lead_or_404(id)
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    data = request.json or {}
+    lead.stage = "CLOSED"
+    lead.lead_status = "NOT_INTERESTED"
+    lead.rejection_reason = data.get("reason")
+    lead.notes = data.get("notes")
+    lead.archived_at = datetime.utcnow()
+    db.session.add(LeadHistory(
+        lead_id=id, type="System Note",
+        remarks=f"Marked as Not Interested: {data.get('reason') or ''}".strip(),
+    ))
+    db.session.commit()
+    return jsonify({"message": "Lead archived"})
+
+
+@owner_bp.route("/leads/<int:id>/reopen", methods=["POST"])
+@owner_required
+def reopen_my_lead(id):
+    lead = _own_lead_or_404(id)
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    lead.stage = "NEW"
+    lead.lead_status = "ACTIVE"
+    lead.archived_at = None
+    lead.rejection_reason = None
+    db.session.add(LeadHistory(
+        lead_id=id, type="System Note", remarks="Lead reopened",
+    ))
+    db.session.commit()
+    return jsonify({"message": "Lead reopened"})
