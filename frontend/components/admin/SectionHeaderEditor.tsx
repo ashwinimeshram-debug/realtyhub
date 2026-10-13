@@ -9,6 +9,7 @@ const HEADER_DEFAULTS: Record<string, string> = {
   advantages: "Key Advantages",
   testimonials: "What Our Customers Say",
   featured: "Featured Properties",
+  new: "New Properties",
   faq: "Frequently Asked Questions",
 };
 
@@ -17,6 +18,7 @@ const SUBTITLE_DEFAULTS: Record<string, string> = {
   advantages: "Why homebuyers and investors trust us with their most important decisions",
   testimonials: "Real experiences from clients who found their dream homes with us",
   featured: "Handpicked premium properties in prime locations across Nagpur",
+  new: "Freshly listed properties across Nagpur",
   faq: "Find answers to common questions about our services and processes",
 };
 

@@ -31,6 +31,7 @@ PERMISSION_CATALOG = [
     {"code": "media.manage", "label": "Manage gallery", "module": "Media", "description": "Upload and manage gallery media"},
     {"code": "teams.manage", "label": "Manage team", "module": "Team", "description": "Edit the team members directory"},
     {"code": "users.manage", "label": "Manage staff users", "module": "Users", "description": "Create, edit and deactivate staff accounts"},
+    {"code": "owners.manage", "label": "Manage registered users", "module": "Users", "description": "View, activate/deactivate and delete registered (public) user accounts"},
     {"code": "roles.manage", "label": "Manage roles & permissions", "module": "Users", "description": "Create roles and edit the permission matrix"},
     {"code": "settings.manage", "label": "Manage settings", "module": "Settings", "description": "Edit platform settings and lead routing options"},
 ]

@@ -6,6 +6,7 @@ import Link from "next/link";
 import API from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useOwnerAuth } from "@/hooks/useOwnerAuth";
+import { useSettings } from "@/hooks/useSettings";
 import { processImages } from "@/lib/imageProcessor";
 import ImageUploader from "@/components/ImageUploader";
 import DynamicField, { type FieldDef } from "@/components/post-property/DynamicField";
@@ -49,6 +50,8 @@ function PostPropertyForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { owner, loading: authLoading } = useOwnerAuth();
+  const { settings, loading: settingsLoading } = useSettings();
+  const allowPublicPost = settings.allow_public_post !== "false";
 
   const editParam = searchParams.get("edit");
   const editId = editParam && /^\d+$/.test(editParam) ? Number(editParam) : null;
@@ -351,8 +354,20 @@ function PostPropertyForm() {
     }
   };
 
-  if (authLoading) {
+  if (authLoading || settingsLoading) {
     return <div className="min-h-[50vh] text-center py-20 text-gray-400">Loading...</div>;
+  }
+
+  if (!allowPublicPost && !isEdit) {
+    return (
+      <div className="max-w-md mx-auto min-h-[50vh] flex flex-col items-center justify-center px-4 py-12 text-center">
+        <h1 className="text-2xl font-bold mb-2" style={{ color: "var(--text-dark)" }}>Posting Unavailable</h1>
+        <p className="text-gray-500 text-sm mb-6">
+          Public property posting is currently disabled. Please contact us if you would like to list your property.
+        </p>
+        <Link href="/properties" className="btn btn-primary px-8">Browse Properties</Link>
+      </div>
+    );
   }
 
   if (!owner) {

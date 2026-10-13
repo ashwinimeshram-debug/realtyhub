@@ -6,6 +6,13 @@ from extensions import db, mail, limiter
 import os
 import time
 import logging
+import mimetypes
+
+# Windows' mimetypes registry does not know the modern image formats,
+# so uploads were served as application/octet-stream. Register them
+# explicitly so browsers can treat (and cache) them as images.
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("image/avif", ".avif")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("realtyhub")
@@ -56,7 +63,11 @@ def create_app():
 
     @app.route("/uploads/<path:filename>")
     def uploaded_file(filename):
-        return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+        response = send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+        # Uploaded filenames are unique (timestamped) and never overwritten,
+        # so they are safe to cache "forever" in the browser.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
     return app
 
@@ -186,6 +197,9 @@ def _bootstrap_schema():
     # Owner password reset tokens
     _safe_execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255)")
     _safe_execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP")
+    # Services display order (backfill existing rows from their id)
+    _safe_execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS sort_order INTEGER")
+    _safe_execute("UPDATE services SET sort_order = id WHERE sort_order IS NULL")
     # Convert floor / total-floor / area fields to free-text
     _safe_execute("UPDATE property_type_fields SET field_type='text' WHERE field_key IN ('floor_level','total_floors','area_size')")
 
@@ -546,6 +560,20 @@ def _seed_page_settings():
     team_key = "page_about_team_layout"
     if not Setting.query.filter_by(skey=team_key).first():
         db.session.add(Setting(skey=team_key, svalue="carousel"))
+
+    # Insert the "New Properties" section after "featured" for existing installs.
+    order_setting = Setting.query.filter_by(skey="section_order").first()
+    if order_setting:
+        try:
+            order = _json.loads(order_setting.svalue or "[]")
+        except Exception:
+            order = []
+        if isinstance(order, list) and "new" not in order:
+            if "featured" in order:
+                order.insert(order.index("featured") + 1, "new")
+            else:
+                order.append("new")
+            order_setting.svalue = _json.dumps(order)
 
 
 if __name__ == "__main__":

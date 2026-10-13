@@ -2,10 +2,12 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from models.models import db, Admin, Owner, Property, PropertyImage, PropertyContact, PropertyTypeField, PropertyValue, Lead, PresetFeature, PropertyFeature
 from utils.helpers import generate_listing_id, paginate
+from sqlalchemy import or_
 from utils.mailer import (
     connect_ack_visitor_email, connect_owner_email, new_lead_email,
-    send_email_async, submission_received_email,
+    send_email_async, submission_received_email, submission_confirmed_email,
 )
+from routes.settings_routes import is_setting_enabled
 from extensions import limiter
 import os
 import json
@@ -20,6 +22,11 @@ public_bp = Blueprint("public", __name__)
 
 from config import Config
 VALID_PAGES = Config.VALID_PAGES
+
+
+def _owner_visible_condition():
+    """Properties with no owner (staff/imported) or whose owner is active."""
+    return or_(Property.owner_id.is_(None), Property.owner.has(Owner.is_active == True))
 
 
 def _validate_file(file):
@@ -57,6 +64,8 @@ def _parse_price(price_str):
 @jwt_required()
 @limiter.limit("10/hour")
 def submit_property():
+    if not is_setting_enabled("allow_public_post", default=True):
+        return jsonify({"error": "Public property posting is currently disabled."}), 403
     ident = str(get_jwt_identity() or "")
     if not ident.startswith("owner:"):
         return jsonify({"error": "Owner login required to post a property"}), 401
@@ -75,6 +84,7 @@ def submit_property():
         if not data.get(field):
             return jsonify({"error": f"{field} is required"}), 400
 
+    auto_approve = is_setting_enabled("auto_approve_properties")
     try:
         price = _parse_price(data.get("price"))
         price_text = (data.get("price_text") or "").strip() or "*"
@@ -85,7 +95,8 @@ def submit_property():
             price=price, price_text=price_text, location=data.get("location"),
             transaction_type=data.get("transaction_type"),
             property_type=data.get("property_type"),
-            status="pending", is_active=False,
+            status="approved" if auto_approve else "pending",
+            is_active=auto_approve,
             owner_id=owner.id,
             overview_template_id=int(data["overview_template_id"]) if data.get("overview_template_id") and data["overview_template_id"].isdigit() else None,
             closing_template_id=int(data["closing_template_id"]) if data.get("closing_template_id") and data["closing_template_id"].isdigit() else None,
@@ -162,12 +173,23 @@ def submit_property():
             except Exception as e:
                 logger.warning("Failed to parse feature_ids for submission: %s", e)
 
-        send_email_async(
-            "Property submitted for review - Nagpur Realty Hub",
-            [owner.email],
-            submission_received_email(prop, owner.name),
-        )
-        return jsonify({"message": "Property submitted for review", "listing_id": prop.listing_id})
+        if auto_approve:
+            send_email_async(
+                "Property published - Nagpur Realty Hub",
+                [owner.email],
+                submission_confirmed_email(prop, owner.name),
+            )
+        else:
+            send_email_async(
+                "Property submitted for review - Nagpur Realty Hub",
+                [owner.email],
+                submission_received_email(prop, owner.name),
+            )
+        return jsonify({
+            "message": "Property published" if auto_approve else "Property submitted for review",
+            "listing_id": prop.listing_id,
+            "status": prop.status,
+        })
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Submission failed"}), 500
@@ -175,7 +197,10 @@ def submit_property():
 
 @public_bp.route("/properties", methods=["GET"])
 def get_properties():
-    query = Property.query.filter_by(status="approved", is_active=True, is_closed=False)
+    query = Property.query.filter(
+        Property.status == "approved", Property.is_active == True, Property.is_closed == False,
+        _owner_visible_condition(),
+    )
 
     location = request.args.get("location")
     transaction_type = request.args.get("type")
@@ -224,6 +249,7 @@ def get_properties():
             "is_featured": p.is_featured, "is_verified": p.is_verified,
             "property_type": p.property_type, "transaction_type": p.transaction_type,
             "images": [img.image_url for img in p.images],
+            "created_at": p.created_at.isoformat() if p.created_at else None,
         })
     return jsonify({"items": result, "total": total, "page": page, "per_page": per_page})
 
@@ -232,6 +258,8 @@ def get_properties():
 def get_property_detail(id):
     prop = Property.query.get(id)
     if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    if prop.owner_id and (not prop.owner or not prop.owner.is_active):
         return jsonify({"error": "Property not found"}), 404
 
     owner_pc = PropertyContact.query.filter_by(property_id=id, type="owner").first()
@@ -264,6 +292,8 @@ def property_contact(id):
 
     prop = Property.query.get(id)
     if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    if prop.owner_id and (not prop.owner or not prop.owner.is_active):
         return jsonify({"error": "Property not found"}), 404
 
     lead = Lead(name=name, email=email, mobile=mobile, source="connect", property_id=id)
@@ -460,7 +490,8 @@ def location_counts():
     rows = db.session.query(
         Property.location, func.count(Property.id).label("count")
     ).filter(
-        Property.status == "approved", Property.is_active == True, Property.is_closed == False
+        Property.status == "approved", Property.is_active == True, Property.is_closed == False,
+        _owner_visible_condition(),
     ).group_by(Property.location).order_by(func.count(Property.id).desc()).all()
     return jsonify([{"name": r[0], "count": r[1]} for r in rows if r[0]])
 

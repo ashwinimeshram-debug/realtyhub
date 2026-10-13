@@ -379,6 +379,26 @@ export default function SettingsPage() {
             </p>
           </div>
         </label>
+
+        <label className="flex items-center gap-3 cursor-pointer mb-4">
+          <button
+            type="button"
+            onClick={() => handleChange("allow_public_post", settings.allow_public_post === "false" ? "true" : "false")}
+            className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+              settings.allow_public_post !== "false" ? "bg-blue-600" : "bg-gray-300"
+            }`}
+          >
+            <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+              settings.allow_public_post !== "false" ? "translate-x-5" : ""
+            }`} />
+          </button>
+          <div className="flex-1">
+            <p className="text-sm text-gray-700 font-medium">Allow public post</p>
+            <p className="text-xs text-gray-500">
+              When on, the Sign In and Post Property menus are shown on the public website, letting visitors register and list properties. When off, the public site is browse-only and only admins/employees can post.
+            </p>
+          </div>
+        </label>
       </div>
 
       <div className="flex justify-center mt-6 pt-4 border-t">

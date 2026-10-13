@@ -24,6 +24,7 @@ const BUILTIN_SECTIONS = [
   { key: "advantages", name: "Advantages", path: "/admin/cms/advantages", settingKey: "section_advantages_visible" },
   { key: "testimonials", name: "Testimonials", path: "/admin/cms/testimonials", settingKey: "section_testimonials_visible" },
   { key: "featured", name: "Featured Properties", path: "/admin/cms/featured", settingKey: "section_featured_visible" },
+  { key: "new", name: "New Properties", path: "/admin/cms/new", settingKey: "section_new_visible" },
   { key: "faq", name: "FAQ", path: "/admin/cms/faq", settingKey: "section_faq_visible" },
   { key: "locations", name: "Location Tags (Footer)", path: null, settingKey: "section_locations_visible" },
 ];

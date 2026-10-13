@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import API from "@/lib/api";
+import { getLocationCounts, getTypes } from "@/lib/lookups";
 
 const PRICE_OPTIONS = [
   { label: "Any", value: "" },
@@ -65,9 +66,9 @@ export default function SearchBar({ onSearch }: SearchBarProps) {
   }, [searchParams]);
 
   useEffect(() => {
-    API.get("/types?category=property").then((r) => setPropertyTypes(r.data)).catch(() => {});
-    API.get("/types?category=transaction").then((r) => setTransactionTypes(r.data)).catch(() => {});
-    API.get("/location-counts").then((r) => setLocations(r.data)).catch(() => {});
+    getTypes("property").then(setPropertyTypes);
+    getTypes("transaction").then(setTransactionTypes);
+    getLocationCounts().then(setLocations);
   }, []);
 
   const buildQueryString = () => {

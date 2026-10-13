@@ -66,6 +66,8 @@ class Service(db.Model):
 
     is_active = db.Column(db.Boolean, default=True)
 
+    sort_order = db.Column(db.Integer)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):

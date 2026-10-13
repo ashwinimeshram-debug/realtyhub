@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app, abort
-from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog, Role, Permission, RolePermission
+from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog, Role, Permission, RolePermission, Owner
 from models.contactus import Contactus
 from models.analytics_model import PageVisit
 from datetime import datetime, timedelta
@@ -298,6 +298,7 @@ def get_all_properties():
             "uploader_type": "owner" if owner_pc else None,
             "uploader_user_id": p.uploaded_admin.user_id if p.uploaded_admin else None,
             "owner_name": owner_pc.name if owner_pc else None,
+            "is_featured": bool(p.is_featured),
             "first_image": image_map.get(p.id),
         })
     return jsonify({"items": result, "total": total, "page": page, "per_page": per_page})
@@ -1431,6 +1432,66 @@ def delete_user(id):
     db.session.commit()
     _log_activity("deleted", "users", id)
     return jsonify({"message": "User deleted"})
+
+
+# =========================
+# REGISTERED USERS (OWNERS)
+# =========================
+@admin_bp.route("/owners", methods=["GET"])
+@jwt_required()
+def list_owners():
+    _require_permission("owners.manage")
+    search = (request.args.get("search") or "").strip()
+    query = Owner.query
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            Owner.name.ilike(like), Owner.email.ilike(like), Owner.mobile.ilike(like),
+        ))
+    owners = query.order_by(Owner.created_at.desc()).all()
+
+    counts = dict(
+        db.session.query(Property.owner_id, func.count(Property.id))
+        .filter(Property.owner_id.isnot(None))
+        .group_by(Property.owner_id).all()
+    )
+    return jsonify({"owners": [{
+        "id": o.id, "name": o.name, "email": o.email, "mobile": o.mobile,
+        "is_verified": o.is_verified, "is_active": o.is_active,
+        "property_count": counts.get(o.id, 0),
+        "last_login": o.last_login.isoformat() if o.last_login else None,
+        "created_at": o.created_at.isoformat() if o.created_at else None,
+    } for o in owners]})
+
+
+@admin_bp.route("/owners/<int:id>", methods=["PUT"])
+@jwt_required()
+def update_owner(id):
+    _require_permission("owners.manage")
+    owner = Owner.query.get(id)
+    if not owner:
+        return jsonify({"error": "Owner not found"}), 404
+    data = request.get_json(silent=True) or {}
+    if "is_active" in data:
+        owner.is_active = bool(data["is_active"])
+    db.session.commit()
+    _log_activity("updated", "owners", owner.id)
+    return jsonify({"id": owner.id, "is_active": owner.is_active})
+
+
+@admin_bp.route("/owners/<int:id>", methods=["DELETE"])
+@jwt_required()
+def delete_owner(id):
+    # Soft delete: deactivate the account so its data and listings are retained
+    # but hidden. Deactivation hides the owner's listings from the public site.
+    _require_permission("owners.manage")
+    owner = Owner.query.get(id)
+    if not owner:
+        return jsonify({"error": "Owner not found"}), 404
+    owner.is_active = False
+    db.session.commit()
+    _log_activity("deactivated", "owners", id)
+    return jsonify({"id": owner.id, "is_active": owner.is_active})
 
 
 # =========================

@@ -1,12 +1,104 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import API, { backendAssetUrl } from "@/lib/api";
 import GalleryPicker from "@/components/admin/GalleryPicker";
 import SectionHeaderEditor from "@/components/admin/SectionHeaderEditor";
 import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/hooks/useConfirm";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+function SortableServiceCard({
+  service,
+  onEdit,
+  onDelete,
+}: {
+  service: any;
+  onEdit: (s: any) => void;
+  onDelete: (id: number) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: service.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 0,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`bg-white p-3 shadow rounded flex flex-col ${
+        isDragging ? "ring-2 ring-blue-400" : ""
+      }`}
+    >
+      <div className="relative">
+        {service.image ? (
+          <img
+            src={backendAssetUrl(service.image)}
+            className="h-32 w-full object-cover rounded"
+          />
+        ) : (
+          <div className="h-32 bg-gray-200 flex items-center justify-center text-sm text-gray-500">
+            No Image
+          </div>
+        )}
+
+        {/* Drag Handle */}
+        <button
+          {...attributes}
+          {...listeners}
+          title="Drag to reorder"
+          className="absolute top-2 right-2 cursor-grab active:cursor-grabbing bg-white/90 rounded-md p-1.5 text-gray-500 hover:text-gray-700 shadow"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
+            <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+            <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+          </svg>
+        </button>
+      </div>
+
+      <p className="font-bold mt-2">{service.title || "No Title"}</p>
+
+      <p className="text-sm text-gray-600 mt-1">{service.description || ""}</p>
+
+      {/* ACTIONS */}
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={() => onEdit(service)}
+          className="flex-1 bg-yellow-500 text-white py-1 rounded text-sm"
+        >
+          Edit
+        </button>
+
+        <button
+          onClick={() => onDelete(service.id)}
+          className="flex-1 bg-red-500 text-white py-1 rounded text-sm"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function ServicesCMS() {
   const router = useRouter();
@@ -30,6 +122,31 @@ export default function ServicesCMS() {
       .then((res) => setServices(res.data))
       .catch(() => {});
   };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  const handleDragEnd = useCallback(
+    async (event: any) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = services.findIndex((s) => s.id === active.id);
+      const newIndex = services.findIndex((s) => s.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const newList = arrayMove(services, oldIndex, newIndex);
+      setServices(newList);
+      try {
+        await API.post("/admin/services/reorder", newList.map((s) => s.id));
+      } catch {
+        toast("Error reordering services", "error");
+        fetchData();
+      }
+    },
+    [services]
+  );
 
   useEffect(() => {
     fetchData();
@@ -160,54 +277,31 @@ export default function ServicesCMS() {
       </div>
 
       {/* LIST */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-        {services.length > 0 ? (
-          services.map((s) => (
-            <div
-              key={s.id}
-              className="bg-white p-3 shadow rounded flex flex-col"
-            >
-              {s.image ? (
-                <img
-                  src={backendAssetUrl(s.image)}
-                  className="h-32 w-full object-cover rounded"
+      {services.length > 0 ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={services.map((s) => s.id)}
+            strategy={rectSortingStrategy}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
+              {services.map((s) => (
+                <SortableServiceCard
+                  key={s.id}
+                  service={s}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
                 />
-              ) : (
-                <div className="h-32 bg-gray-200 flex items-center justify-center text-sm text-gray-500">
-                  No Image
-                </div>
-              )}
-
-              <p className="font-bold mt-2">
-                {s.title || "No Title"}
-              </p>
-
-              <p className="text-sm text-gray-600 mt-1">
-                {s.description || ""}
-              </p>
-
-              {/* ACTIONS */}
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={() => handleEdit(s)}
-                  className="flex-1 bg-yellow-500 text-white py-1 rounded text-sm"
-                >
-                  Edit
-                </button>
-
-                <button
-                  onClick={() => handleDelete(s.id)}
-                  className="flex-1 bg-red-500 text-white py-1 rounded text-sm"
-                >
-                  Delete
-                </button>
-              </div>
+              ))}
             </div>
-          ))
-        ) : (
-          <p>No services added</p>
-        )}
-      </div>
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <p>No services added</p>
+      )}
     </div>
   );
 }

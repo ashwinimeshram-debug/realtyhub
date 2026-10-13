@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { backendAssetUrl } from "@/lib/api";
 
 export default function ImageSlider({
@@ -24,15 +25,24 @@ export default function ImageSlider({
     );
   }
 
+  const heightClass = small ? "h-[180px]" : "h-[400px] md:h-[500px]";
+
   return (
     <div className="w-full">
 
       {/* MAIN IMAGE */}
-      <div className="relative overflow-hidden rounded-xl">
-        <img
+      <div className={`relative overflow-hidden rounded-xl bg-gray-50 ${heightClass}`}>
+        <Image
+          key={images[index]}
           src={backendAssetUrl(images[index])}
           alt="Property"
-          className={`w-full ${small ? "h-[180px] object-cover object-top" : "h-[400px] md:h-[500px] object-contain bg-gray-50"}`}
+          fill
+          sizes={
+            small
+              ? "(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              : "100vw"
+          }
+          className={small ? "object-cover object-top" : "object-contain"}
         />
 
         {/* PHOTO COUNT BADGE */}
@@ -49,16 +59,16 @@ export default function ImageSlider({
               onClick={() => setIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1))}
               className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/50 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg hover:bg-white transition z-10"
             >
-              <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5L8.25 12l7.5-7.5" />
               </svg>
             </button>
             <button
-              onClick={() => setIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1))}
+              onClick={() => setIndex((prev) => (prev + 1) % images.length)}
               className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/50 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg hover:bg-white transition z-10"
             >
-              <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
               </svg>
             </button>
           </>
@@ -69,15 +79,23 @@ export default function ImageSlider({
       {!small && (
         <div className="flex gap-2 mt-3 overflow-x-auto">
           {images.map((img, i) => (
-            <img
+            <button
               key={i}
-              src={backendAssetUrl(img)}
-              alt="Property thumbnail"
+              type="button"
               onClick={() => setIndex(i)}
-              className={`h-20 w-28 object-cover object-top rounded cursor-pointer border ${
+              className={`relative h-20 w-28 shrink-0 overflow-hidden rounded border ${
                 index === i ? "border-blue-500" : "border-gray-200"
               }`}
-            />
+              aria-label={`View image ${i + 1}`}
+            >
+              <Image
+                src={backendAssetUrl(img)}
+                alt="Property thumbnail"
+                fill
+                sizes="112px"
+                className="object-cover object-top"
+              />
+            </button>
           ))}
         </div>
       )}

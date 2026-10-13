@@ -6,12 +6,13 @@ import SearchBar from "@/components/SearchBar";
 import SectionHeader from "@/components/home/SectionHeader";
 import HeroSlider from "@/components/home/HeroSlider";
 import FeaturedCarousel from "@/components/home/FeaturedCarousel";
+import NewPropertiesCarousel from "@/components/home/NewPropertiesCarousel";
 import TestimonialsCarousel from "@/components/home/TestimonialsCarousel";
 import FaqAccordion from "@/components/home/FaqAccordion";
 
 export const revalidate = 60;
 
-const DEFAULT_ORDER = ["hero", "featured", "services", "advantages", "testimonials", "faq"];
+const DEFAULT_ORDER = ["hero", "featured", "new", "services", "advantages", "testimonials", "faq"];
 
 /* ───────── SERVICES ───────── */
 function ServicesSection({ services, title, subtitle }: { services: any[]; title?: string; subtitle?: string }) {
@@ -119,6 +120,7 @@ export default async function Home() {
     featured,
     faqs,
     allProperties,
+    latest,
   } = await getHomeData();
 
   const isVisible = (key: string) => settings[key] !== "false";
@@ -134,6 +136,7 @@ export default async function Home() {
   const settingKeyMap: Record<string, string> = {
     hero: "section_hero_visible",
     featured: "section_featured_visible",
+    new: "section_new_visible",
     services: "section_services_visible",
     advantages: "section_advantages_visible",
     testimonials: "section_testimonials_visible",
@@ -166,6 +169,15 @@ export default async function Home() {
             title={settings["section_featured_title"]}
             subtitle={settings["section_featured_subtitle"]}
             align={settings["section_featured_align"]}
+          />
+        );
+      } else if (key === "new") {
+        node = (
+          <NewPropertiesCarousel
+            latest={latest}
+            title={settings["section_new_title"]}
+            subtitle={settings["section_new_subtitle"]}
+            align={settings["section_new_align"]}
           />
         );
       } else if (key === "services") {

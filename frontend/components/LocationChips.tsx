@@ -3,18 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import API from "@/lib/api";
+import { getLocationCounts, type LocationCount } from "@/lib/lookups";
 import { useSettings } from "@/hooks/useSettings";
-
-interface LocationArea {
-  name: string;
-  count: number;
-}
 
 export default function LocationChips() {
   const { settings } = useSettings();
   const pathname = usePathname();
-  const [areas, setAreas] = useState<LocationArea[]>([]);
+  const [areas, setAreas] = useState<LocationCount[]>([]);
 
   if (pathname.startsWith("/admin")) return null;
 
@@ -22,9 +17,7 @@ export default function LocationChips() {
 
   useEffect(() => {
     if (!visible) return;
-    API.get("/location-counts").then((res) => {
-      setAreas(res.data || []);
-    }).catch(() => {});
+    getLocationCounts().then(setAreas);
   }, [visible]);
 
   if (!visible || areas.length === 0) return null;

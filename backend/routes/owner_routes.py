@@ -18,6 +18,7 @@ from sqlalchemy import func
 from werkzeug.utils import secure_filename
 
 from extensions import db, limiter
+from routes.settings_routes import is_setting_enabled
 from models.models import (
     Lead, Owner, Property, PropertyContact, PropertyFeature,
     PropertyImage, PropertyTypeField, PropertyValue, PresetFeature,
@@ -122,6 +123,8 @@ def _send_verification(owner):
 @owner_bp.route("/register", methods=["POST"])
 @limiter.limit("10/hour")
 def register():
+    if not is_setting_enabled("allow_public_post", default=True):
+        return jsonify({"error": "Public registration is currently disabled."}), 403
     data = request.json or {}
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip().lower()

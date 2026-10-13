@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required
+from sqlalchemy import func
 from extensions import db, limiter
 from models.cms_models import HeroSlide, Service, Advantage
 from werkzeug.utils import secure_filename
@@ -201,15 +202,20 @@ def reorder_hero():
 # =========================
 @cms_bp.route("/services", methods=["GET"])
 def get_services():
-    services = Service.query.filter_by(is_active=True).all()
-    return jsonify([{"id": s.id, "title": s.title, "description": s.description, "image": s.image} for s in services])
+    services = (
+        Service.query.filter_by(is_active=True)
+        .order_by(Service.sort_order.asc().nulls_last(), Service.id.asc())
+        .all()
+    )
+    return jsonify([{"id": s.id, "title": s.title, "description": s.description, "image": s.image, "sort_order": s.sort_order} for s in services])
 
 
 @cms_bp.route("/admin/services", methods=["POST"])
 @jwt_required()
 def add_service():
     data = request.json
-    service = Service(title=data.get("title"), description=data.get("description"), image=data.get("image"))
+    next_order = (db.session.query(func.max(Service.sort_order)).scalar() or 0) + 1
+    service = Service(title=data.get("title"), description=data.get("description"), image=data.get("image"), sort_order=next_order)
     db.session.add(service)
     db.session.commit()
     return jsonify({"message": "Service added"}), 201
@@ -243,6 +249,29 @@ def toggle_service(id):
     service.is_active = not service.is_active
     db.session.commit()
     return jsonify({"message": "Updated", "is_active": service.is_active})
+
+
+@cms_bp.route("/admin/services/reorder", methods=["POST"])
+@jwt_required()
+def reorder_services():
+    data = request.json
+    if not isinstance(data, list):
+        return jsonify({"error": "Body must be a JSON array"}), 400
+    position = 0
+    for item in data:
+        position += 1
+        if isinstance(item, dict):
+            sid = item.get("id")
+            order = item.get("order", position)
+        else:
+            sid, order = item, position
+        if sid is None:
+            continue
+        service = Service.query.get(sid)
+        if service:
+            service.sort_order = order
+    db.session.commit()
+    return jsonify({"message": "Reordered"})
 
 
 # =========================

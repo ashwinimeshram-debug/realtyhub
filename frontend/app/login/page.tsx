@@ -87,7 +87,7 @@ function LoginForm() {
         onSubmit={handleLogin}
         className="bg-white p-8 rounded-xl shadow-md w-full max-w-md border border-gray-100"
       >
-        <h1 className="text-2xl font-bold mb-2 text-center" style={{ color: "var(--text-dark)" }}>Owner Login</h1>
+        <h1 className="text-2xl font-bold mb-2 text-center" style={{ color: "var(--text-dark)" }}>Login</h1>
         <p className="text-sm text-gray-500 text-center mb-6">
           Sign in to post and manage your properties
         </p>

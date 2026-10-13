@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required
 from extensions import db
 from models.setting_model import Setting
 import time
+import re as _re
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -38,7 +39,7 @@ def is_setting_enabled(key, default=False):
 def public_get_settings():
     PUBLIC_PREFIXES = ("site_", "section_", "hero_", "page_", "contact_", "social_")
     all_settings = get_all_settings()
-    safe = {k: v for k, v in all_settings.items() if k.startswith(PUBLIC_PREFIXES) or k in ("site_name", "site_logo")}
+    safe = {k: v for k, v in all_settings.items() if k.startswith(PUBLIC_PREFIXES) or k in ("site_name", "site_logo", "allow_public_post")}
     return jsonify(safe)
 
 
@@ -71,11 +72,13 @@ def admin_update_settings():
         "section_order", "section_hero_visible", "section_services_visible",
         "section_advantages_visible", "section_testimonials_visible",
         "section_featured_visible", "section_faq_visible", "section_locations_visible",
-        "auto_assign_leads", "auto_approve_properties",
+        "section_new_visible", "section_new_count",
+        "auto_assign_leads", "auto_approve_properties", "allow_public_post",
     }
     ACCEPTED = KNOWN_SETTINGS | MAIL_SETTING_KEYS
+    SECTION_HEADER_RE = _re.compile(r"^section_[a-z0-9_]+_(title|subtitle|align)$")
     for key in data:
-        if key not in ACCEPTED:
+        if key not in ACCEPTED and not SECTION_HEADER_RE.match(key):
             continue
         val = data[key]
         if key == "mail_password":

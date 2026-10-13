@@ -25,7 +25,7 @@ export default function FeaturedPropertiesPage() {
 
   const fetchProperties = async () => {
     try {
-      const res = await API.get("/admin/properties");
+      const res = await API.get("/admin/properties?per_page=200");
       const approved = (res.data.items || []).filter((p: any) => p.status === "approved");
       approved.sort((a: any, b: any) => (b.is_featured ? 1 : 0) - (a.is_featured ? 1 : 0));
       setProperties(approved);
@@ -83,17 +83,21 @@ export default function FeaturedPropertiesPage() {
   return (
     <div className="p-3 md:p-6 max-w-7xl mx-auto space-y-4">
       {/* HEADER */}
-      <div className="flex items-center justify-center md:justify-between relative">
+      <div className="flex items-center justify-between mb-4 md:mb-6">
         <button
           onClick={() => router.push("/admin/cms")}
-          className="absolute left-0 flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 rounded-lg shadow-sm transition text-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 rounded-lg shadow-sm transition text-sm"
         >
           ← Back
         </button>
-        <h1 className="text-xl font-bold text-gray-800 pl-16 md:pl-0">Featured Properties</h1>
-        <div className="hidden md:block w-[90px]" />
+
+        <h1 className="text-xl font-bold text-gray-800 text-center flex-1">
+          Featured Properties
+        </h1>
+
+        <div className="w-[90px]" />
       </div>
-      <p className="text-sm text-gray-500 text-center -mt-1">Mark properties as featured to display them on the homepage</p>
+      <p className="text-sm text-gray-500 text-center -mt-1 mb-4 md:mb-6">Mark properties as featured to display them on the homepage</p>
 
       <SectionHeaderEditor sectionKey="featured" sectionName="Featured Properties" settings={settings} onUpdate={handleHeaderUpdate} />
 
