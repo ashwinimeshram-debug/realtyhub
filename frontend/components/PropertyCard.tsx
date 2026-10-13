@@ -2,7 +2,8 @@ import ImageSlider from "./ImageSlider";
 import { encodePropertyId } from "@/lib/api";
 import { formatPriceDisplay } from "@/lib/priceFormat";
 
-export default function PropertyCard({ p }: any) {
+export default function PropertyCard({ p, ctx }: { p: any; ctx?: string }) {
+  const href = `/property/${encodePropertyId(p.id)}${ctx ? `?${ctx}` : ""}`;
   return (
     <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition flex flex-col">
 
@@ -31,7 +32,7 @@ export default function PropertyCard({ p }: any) {
 
         {/* VIEW DETAILS */}
         <a
-          href={`/property/${encodePropertyId(p.id)}`}
+          href={href}
           className="mt-2 inline-block text-sm" style={{ color: "var(--primary)" }}
         >
           View Details →

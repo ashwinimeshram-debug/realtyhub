@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import ImageSlider from "@/components/ImageSlider";
 import Link from "next/link";
 import { formatPriceDisplay } from "@/lib/priceFormat";
+import { sortProperties } from "@/lib/propertySort";
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -17,6 +18,7 @@ export default function PropertyDetail() {
   const [property, setProperty] = useState<any>(null);
   const [notFound, setNotFound] = useState(false);
   const [allIds, setAllIds] = useState<number[]>([]);
+  const [navCtx, setNavCtx] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState("");
@@ -24,10 +26,39 @@ export default function PropertyDetail() {
   const [form, setForm] = useState({ name: "", email: "", mobile: "" });
 
   useEffect(() => {
-    API.get("/properties")
-      .then((res) => setAllIds(res.data.map((p: any) => p.id)))
-      .catch(() => {});
-  }, []);
+    const search =
+      typeof window !== "undefined" && window.location.search
+        ? window.location.search.slice(1)
+        : "";
+    setNavCtx(search);
+
+    const sp = new URLSearchParams(search);
+    const filters = new URLSearchParams();
+    ["location", "type", "category", "min_price", "max_price", "featured"].forEach((key) => {
+      const value = sp.get(key);
+      if (value) filters.set(key, value);
+    });
+    const sortBy = sp.get("sort") || "newest";
+    const filterStr = filters.toString();
+
+    const loadNav = async () => {
+      try {
+        const qs = filterStr ? `${filterStr}&per_page=200` : "per_page=200";
+        const res = await API.get(`/properties?${qs}`);
+        const items = Array.isArray(res.data) ? res.data : res.data?.items || [];
+        let ids = sortProperties(items, sortBy).map((p: any) => p.id);
+        if (propertyId && !ids.includes(propertyId)) {
+          const all = await API.get("/properties?per_page=200");
+          const allItems = Array.isArray(all.data) ? all.data : all.data?.items || [];
+          ids = sortProperties(allItems, "newest").map((p: any) => p.id);
+        }
+        setAllIds(ids);
+      } catch {
+        /* ignore navigation errors */
+      }
+    };
+    loadNav();
+  }, [propertyId]);
 
   useEffect(() => {
     if (propertyId) {
@@ -229,7 +260,7 @@ export default function PropertyDetail() {
         <div className="flex justify-between items-center mt-8">
           {prevId ? (
             <Link
-              href={`/property/${encodePropertyId(prevId)}`}
+              href={`/property/${encodePropertyId(prevId)}${navCtx ? `?${navCtx}` : ""}`}
               className="flex items-center gap-2 btn btn-ghost !px-5 !py-2.5"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -247,7 +278,7 @@ export default function PropertyDetail() {
 
           {nextId ? (
             <Link
-              href={`/property/${encodePropertyId(nextId)}`}
+              href={`/property/${encodePropertyId(nextId)}${navCtx ? `?${navCtx}` : ""}`}
               className="flex items-center gap-2 btn btn-ghost !px-5 !py-2.5"
             >
               Next

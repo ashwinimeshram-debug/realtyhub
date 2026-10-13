@@ -4,15 +4,18 @@ import { Suspense, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import PropertyCard from "@/components/PropertyCard";
 import SearchBar from "@/components/SearchBar";
+import { sortProperties } from "@/lib/propertySort";
 
 export default function PropertiesClient({
   properties,
   areas,
   activeLocation,
+  listQuery,
 }: {
   properties: any[];
   areas: { name: string; count: number }[];
   activeLocation: string;
+  listQuery: string;
 }) {
   const [sortBy, setSortBy] = useState("newest");
   const router = useRouter();
@@ -24,27 +27,16 @@ export default function PropertiesClient({
     router.push(`/properties${qs ? `?${qs}` : ""}`);
   };
 
-  const sortedProperties = useMemo(() => {
-    const list = [...properties];
-    switch (sortBy) {
-      case "price_asc":
-        return list.sort((a, b) => {
-          const av = a.price != null && Number(a.price) > 0 ? Number(a.price) : Infinity;
-          const bv = b.price != null && Number(b.price) > 0 ? Number(b.price) : Infinity;
-          return av - bv;
-        });
-      case "price_desc":
-        return list.sort((a, b) => {
-          const av = a.price != null && Number(a.price) > 0 ? Number(a.price) : 0;
-          const bv = b.price != null && Number(b.price) > 0 ? Number(b.price) : 0;
-          return bv - av;
-        });
-      case "featured":
-        return list.sort((a, b) => Number(b.is_featured) - Number(a.is_featured));
-      default:
-        return list;
-    }
-  }, [properties, sortBy]);
+  const sortedProperties = useMemo(
+    () => sortProperties(properties, sortBy),
+    [properties, sortBy]
+  );
+
+  const ctx = useMemo(() => {
+    const params = new URLSearchParams(listQuery);
+    if (sortBy) params.set("sort", sortBy);
+    return params.toString();
+  }, [listQuery, sortBy]);
 
   return (
     <div className="text-gray-800">
@@ -100,7 +92,7 @@ export default function PropertiesClient({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
           {sortedProperties.map((p: any) => (
-            <PropertyCard key={p.id} p={p} />
+            <PropertyCard key={p.id} p={p} ctx={ctx} />
           ))}
         </div>
 

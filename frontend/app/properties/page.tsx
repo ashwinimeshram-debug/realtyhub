@@ -28,6 +28,7 @@ export default async function PropertiesPage({
       properties={items}
       areas={areas}
       activeLocation={activeLocation}
+      listQuery={queryString}
     />
   );
 }
