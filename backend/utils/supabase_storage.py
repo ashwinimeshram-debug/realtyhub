@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import datetime, timezone
 
 _supabase = None
 
@@ -74,7 +75,20 @@ def list_files(folder: str = "") -> list:
         items = []
         for name in sorted(os.listdir(base)):
             full = os.path.join(base, name)
-            items.append({"name": name, "id": None if os.path.isdir(full) else name})
+            if os.path.isdir(full):
+                items.append({"name": name, "id": None, "metadata": None})
+                continue
+            try:
+                stat = os.stat(full)
+                size, mtime = stat.st_size, stat.st_mtime
+            except OSError:
+                size, mtime = 0, 0
+            items.append({
+                "name": name,
+                "id": name,
+                "metadata": {"size": size},
+                "updated_at": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
+            })
         return items
     client = _get_client()
     return client.storage.from_(SUPABASE_BUCKET).list(folder)

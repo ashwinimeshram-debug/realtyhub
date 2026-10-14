@@ -64,23 +64,11 @@ API.interceptors.response.use(
 
 export default API;
 
-const PROP_SALT = "nrr2k25x";
-export function encodePropertyId(id: number): string {
-  return btoa(`${PROP_SALT}:${id}`)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-export function decodePropertyId(slug: string): number | null {
-  try {
-    let s = slug.replace(/-/g, "+").replace(/_/g, "/");
-    while (s.length % 4) s += "=";
-    const decoded = atob(s);
-    const [salt, num] = decoded.split(":");
-    if (salt !== PROP_SALT || !num) return null;
-    const id = Number(num);
-    return Number.isInteger(id) && id > 0 ? id : null;
-  } catch {
-    return null;
-  }
-}
+export {
+  encodePropertyId,
+  decodePropertyId,
+  buildPropertySlug,
+  parsePropertySlug,
+  propertyHref,
+  slugify,
+} from "./propertySlug";

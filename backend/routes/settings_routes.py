@@ -37,7 +37,7 @@ def is_setting_enabled(key, default=False):
 
 @settings_bp.route("/settings", methods=["GET"])
 def public_get_settings():
-    PUBLIC_PREFIXES = ("site_", "section_", "hero_", "page_", "contact_", "social_")
+    PUBLIC_PREFIXES = ("site_", "section_", "hero_", "page_", "contact_", "social_", "share_", "seo_", "rera_")
     all_settings = get_all_settings()
     safe = {k: v for k, v in all_settings.items() if k.startswith(PUBLIC_PREFIXES) or k in ("site_name", "site_logo", "allow_public_post")}
     resp = jsonify(safe)
@@ -76,6 +76,9 @@ def admin_update_settings():
         "section_featured_visible", "section_faq_visible", "section_locations_visible",
         "section_new_visible", "section_new_count",
         "auto_assign_leads", "auto_approve_properties", "allow_public_post",
+        "share_caption_template",
+        "seo_google_verification", "seo_bing_verification", "seo_default_description",
+        "rera_license",
     }
     ACCEPTED = KNOWN_SETTINGS | MAIL_SETTING_KEYS
     SECTION_HEADER_RE = _re.compile(r"^section_[a-z0-9_]+_(title|subtitle|align)$")

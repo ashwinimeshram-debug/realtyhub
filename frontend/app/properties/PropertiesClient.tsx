@@ -1,42 +1,56 @@
 "use client";
 
 import { Suspense, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import PropertyCard from "@/components/PropertyCard";
 import SearchBar from "@/components/SearchBar";
 import { sortProperties } from "@/lib/propertySort";
+import { slugifyLocality } from "@/lib/seo/nagpur-geo";
 
 export default function PropertiesClient({
   properties,
   areas,
   activeLocation,
   listQuery,
+  total,
+  page,
+  perPage,
+  basePath = "/properties",
 }: {
   properties: any[];
   areas: { name: string; count: number }[];
   activeLocation: string;
   listQuery: string;
+  total: number;
+  page: number;
+  perPage: number;
+  basePath?: string;
 }) {
   const [sortBy, setSortBy] = useState("newest");
-  const router = useRouter();
-
-  const handleAreaClick = (area: string) => {
-    const params = new URLSearchParams();
-    if (activeLocation !== area) params.set("location", area);
-    const qs = params.toString();
-    router.push(`/properties${qs ? `?${qs}` : ""}`);
-  };
 
   const sortedProperties = useMemo(
     () => sortProperties(properties, sortBy),
     [properties, sortBy]
   );
 
-  const ctx = useMemo(() => {
+  const totalPages = Math.max(1, Math.ceil((total || properties.length) / (perPage || 50)));
+
+  const pageHref = (target: number) => {
     const params = new URLSearchParams(listQuery);
-    if (sortBy) params.set("sort", sortBy);
-    return params.toString();
-  }, [listQuery, sortBy]);
+    params.delete("page");
+    if (sortBy && sortBy !== "newest") params.set("sort", sortBy);
+    if (target > 1) params.set("page", String(target));
+    const qs = params.toString();
+    return `${basePath}${qs ? `?${qs}` : ""}`;
+  };
+
+  const pageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    const start = Math.max(1, page - 2);
+    const end = Math.min(totalPages, start + 4);
+    for (let i = start; i <= end; i += 1) pages.push(i);
+    return pages;
+  }, [page, totalPages]);
 
   return (
     <div className="text-gray-800">
@@ -47,40 +61,41 @@ export default function PropertiesClient({
       </div>
 
       <div className="px-4 md:px-10">
+        <h1 className="text-2xl md:text-3xl font-bold mt-4 mb-4 text-center" style={{ color: "var(--primary)" }}>
+          {activeLocation
+            ? `Properties in ${activeLocation}, Nagpur`
+            : "Properties for Sale and Rent in Nagpur"}
+        </h1>
+
         {areas.length > 0 && (
           <div className="flex flex-wrap justify-center gap-2">
             {areas.map((a) => (
-              <button
+              <Link
                 key={a.name}
-                onClick={() => handleAreaClick(a.name)}
+                href={`/properties/${slugifyLocality(a.name)}`}
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
                   activeLocation === a.name ? "text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
                 style={activeLocation === a.name ? { backgroundColor: "var(--primary)" } : undefined}
               >
                 Properties In {a.name} ({a.count})
-              </button>
+              </Link>
             ))}
           </div>
         )}
 
-        {activeLocation && (
-          <h2 className="text-2xl font-bold mt-6 mb-2 text-center" style={{ color: "var(--primary)" }}>
-            Properties In {activeLocation}
-          </h2>
-        )}
-
         <div className="flex items-center justify-between mt-6 mb-4 flex-wrap gap-3">
           <p className="text-sm text-gray-500">
-            Showing <span className="font-semibold text-gray-700">{properties.length}</span>{" "}
-            {properties.length === 1 ? "Property" : "Properties"}
+            Showing <span className="font-semibold text-gray-700">{properties.length}</span> of{" "}
+            <span className="font-semibold text-gray-700">{total || properties.length}</span>{" "}
+            {total === 1 ? "Property" : "Properties"}
           </p>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">Sort By:</span>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/30 focus:border-[var(--primary)] transition cursor-pointer"
+              className="border border-gray-200 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none"
             >
               <option value="newest">Newest First</option>
               <option value="price_asc">Price: Low to High</option>
@@ -90,16 +105,63 @@ export default function PropertiesClient({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-          {sortedProperties.map((p: any) => (
-            <PropertyCard key={p.id} p={p} ctx={ctx} />
-          ))}
-        </div>
+        {sortedProperties.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {sortedProperties.map((p: any) => (
+              <PropertyCard key={p.id} p={p} ctx={listQuery} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-gray-500 py-16">No properties found.</p>
+        )}
 
-        {properties.length === 0 && (
-          <p className="text-center text-gray-400 mt-10">No properties found</p>
+        {totalPages > 1 && (
+          <nav
+            className="flex items-center justify-center gap-2 mt-8"
+            aria-label="Pagination"
+          >
+            {page > 1 && (
+              <Link
+                href={paginationHref(basePath, listQuery, page - 1)}
+                className="px-3 py-1.5 rounded-md border border-gray-200 text-sm hover:bg-gray-50"
+              >
+                Previous
+              </Link>
+            )}
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              <Link
+                key={p}
+                href={paginationHref(basePath, listQuery, p)}
+                className={`px-3 py-1.5 rounded-md border text-sm ${
+                  p === page
+                    ? "text-white"
+                    : "border-gray-200 text-gray-700 hover:bg-gray-50"
+                }`}
+                style={p === page ? { backgroundColor: "var(--primary)", borderColor: "var(--primary)" } : undefined}
+                aria-current={p === page ? "page" : undefined}
+              >
+                {p}
+              </Link>
+            ))}
+            {page < totalPages && (
+              <Link
+                href={paginationHref(basePath, listQuery, page + 1)}
+                className="px-3 py-1.5 rounded-md border border-gray-200 text-sm hover:bg-gray-50"
+              >
+                Next
+              </Link>
+            )}
+          </nav>
         )}
       </div>
     </div>
   );
+}
+
+function paginationHref(basePath: string, listQuery: string, page: number): string {
+  const params = new URLSearchParams(listQuery);
+  params.delete("page");
+  if (page > 1) params.set("page", String(page));
+  const qs = params.toString();
+  return `${basePath}${qs ? `?${qs}` : ""}`;
 }

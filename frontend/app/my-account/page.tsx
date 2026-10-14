@@ -8,7 +8,7 @@ import { backendAssetUrl } from "@/lib/api";
 import { useOwnerAuth } from "@/hooks/useOwnerAuth";
 import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/hooks/useConfirm";
-import { encodePropertyId } from "@/lib/api";
+import { propertyHref } from "@/lib/api";
 import OwnerLeadsBoard from "@/components/owner/OwnerLeadsBoard";
 
 interface MyProperty {
@@ -241,7 +241,7 @@ export default function MyAccountPage() {
                       </p>
                     )}
                     <div className="mt-auto pt-3 flex gap-2 border-t border-gray-50">
-                      <Link href={`/property/${encodePropertyId(p.id)}`} className="btn btn-sm btn-ghost flex-1 text-center">
+                      <Link href={propertyHref(p.id, p.title)} className="btn btn-sm btn-ghost flex-1 text-center">
                         View
                       </Link>
                       <Link href={`/post?edit=${p.id}`} className="btn btn-sm btn-primary flex-1 text-center">

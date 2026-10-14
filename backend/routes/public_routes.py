@@ -208,10 +208,13 @@ def get_properties():
     min_price = request.args.get("min_price")
     max_price = request.args.get("max_price")
     featured = request.args.get("featured")
+    keyword = request.args.get("q")
     sort = request.args.get("sort", "newest")
 
     if location:
         query = query.filter(Property.location.ilike(f"%{location}%"))
+    if keyword:
+        query = query.filter(Property.title.ilike(f"%{keyword}%"))
     if transaction_type:
         query = query.filter_by(transaction_type=transaction_type)
     if property_type:
@@ -273,6 +276,8 @@ def get_property_detail(id):
         "price_text": prop.price_text or "*", "location": prop.location, "transaction_type": prop.transaction_type,
         "property_type": prop.property_type, "is_featured": prop.is_featured,
         "is_verified": prop.is_verified, "images": [img.image_url for img in prop.images],
+        "created_at": prop.created_at.isoformat() if prop.created_at else None,
+        "updated_at": prop.updated_at.isoformat() if prop.updated_at else None,
         "owner_name": owner_pc.name if owner_pc else None,
         "contact": {"name": owner_pc.name if owner_pc else None, "mobile": owner_pc.mobile if owner_pc else None, "email": owner_pc.email if owner_pc else None},
         "selected_features": [{"id": pf.id, "label": pf.label} for pf in prop.features],
@@ -494,6 +499,30 @@ def location_counts():
         _owner_visible_condition(),
     ).group_by(Property.location).order_by(func.count(Property.id).desc()).all()
     resp = jsonify([{"name": r[0], "count": r[1]} for r in rows if r[0]])
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
+
+
+@public_bp.route("/sitemap-data", methods=["GET"])
+def sitemap_data():
+    """Lightweight listing index (id/title/updated_at) for XML sitemap generation."""
+    rows = (
+        Property.query.filter(
+            Property.status == "approved", Property.is_active == True, Property.is_closed == False,
+            _owner_visible_condition(),
+        )
+        .with_entities(Property.id, Property.title, Property.updated_at)
+        .order_by(Property.updated_at.desc())
+        .all()
+    )
+    resp = jsonify([
+        {
+            "id": p.id,
+            "title": p.title,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        }
+        for p in rows
+    ])
     resp.headers["Cache-Control"] = "public, max-age=300"
     return resp
 

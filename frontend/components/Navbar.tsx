@@ -54,25 +54,25 @@ export default function Navbar() {
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-6">
-          <a href="/" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Home</a>
-          <a href="/properties" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Properties</a>
-          <a href="/about" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>About Us</a>
-          <a href="/contact" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Contact Us</a>
+          <Link href="/" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Home</Link>
+          <Link href="/properties" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Properties</Link>
+          <Link href="/about" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>About Us</Link>
+          <Link href="/contact" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Contact Us</Link>
           {owner ? (
             <div className="flex items-center gap-2">
-              <a href="/my-account" className="btn btn-sm" style={{ backgroundColor: "var(--primary)", color: "#ffffff", borderColor: "var(--primary)" }}>
+              <Link href="/my-account" className="btn btn-sm" style={{ backgroundColor: "var(--primary)", color: "#ffffff", borderColor: "var(--primary)" }}>
                 My Account
-              </a>
+              </Link>
             </div>
           ) : (
             allowPublicPost && (
-              <a href="/login" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Sign In</a>
+              <Link href="/login" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Sign In</Link>
             )
           )}
           {allowPublicPost && (
-            <a href="/post" className="btn btn-sm" style={{ backgroundColor: "var(--secondary)", color: "#ffffff", borderColor: "var(--secondary)" }}>
+            <Link href="/post" className="btn btn-sm" style={{ backgroundColor: "var(--secondary)", color: "#ffffff", borderColor: "var(--secondary)" }}>
               Post Property
-            </a>
+            </Link>
           )}
         </div>
 
@@ -118,19 +118,19 @@ export default function Navbar() {
       {/* Mobile nav dropdown */}
       {menuOpen && (
         <div className="md:hidden border-t bg-white shadow-lg">
-          <a href="/" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Home</a>
-          <a href="/properties" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Properties</a>
-          <a href="/about" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>About Us</a>
-          <a href="/contact" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Contact Us</a>
+          <Link href="/" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Home</Link>
+          <Link href="/properties" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Properties</Link>
+          <Link href="/about" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>About Us</Link>
+          <Link href="/contact" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Contact Us</Link>
           {owner ? (
-            <a href="/my-account" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>My Account</a>
+            <Link href="/my-account" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>My Account</Link>
           ) : (
             allowPublicPost && (
-              <a href="/login" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Sign In</a>
+              <Link href="/login" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Sign In</Link>
             )
           )}
           {allowPublicPost && (
-            <a href="/post" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition">Post Property</a>
+            <Link href="/post" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition">Post Property</Link>
           )}
         </div>
       )}

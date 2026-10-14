@@ -1,4 +1,6 @@
+import { cache } from "react";
 import { API_BASE_URL } from "./assets";
+import type { SeoProperty } from "./seo/types";
 
 export const REVALIDATE = 60;
 
@@ -28,10 +30,16 @@ export async function fetchJson(path: string, revalidate: number = REVALIDATE) {
   }
 }
 
-export async function getSettings(): Promise<Record<string, string>> {
+export const getSettings = cache(async (): Promise<Record<string, string>> => {
   const data = await fetchJson("/settings");
   return data && typeof data === "object" ? (data as Record<string, string>) : {};
-}
+});
+
+export const getProperty = cache(async (id: number): Promise<SeoProperty | null> => {
+  const data = await fetchJson(`/property/${id}`);
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  return data as SeoProperty;
+});
 
 export interface HomeData {
   settings: Record<string, string>;
@@ -48,7 +56,7 @@ export interface HomeData {
 export async function getHomeData(): Promise<HomeData> {
   const [settingsRes, heroRes, servicesRes, advantagesRes, testimonialsRes, featuredRes, faqsRes, allRes] =
     await Promise.all([
-      fetchJson("/settings"),
+      getSettings(),
       fetchJson("/hero"),
       fetchJson("/services"),
       fetchJson("/advantages"),
@@ -90,16 +98,21 @@ export async function getHomeData(): Promise<HomeData> {
 }
 
 export interface PagedProperties {
-  items: any[];
+  items: SeoProperty[];
   total: number;
+  page: number;
+  perPage: number;
 }
 
 export async function getProperties(query: string): Promise<PagedProperties> {
   const data = await fetchJson(`/properties${query ? `?${query}` : ""}`);
-  if (!data) return { items: [], total: 0 };
+  if (!data) return { items: [], total: 0, page: 1, perPage: 50 };
+  const items: SeoProperty[] = Array.isArray(data) ? data : data.items || [];
   return {
-    items: Array.isArray(data) ? data : data.items || [],
-    total: Array.isArray(data) ? data.length : data.total ?? 0,
+    items,
+    total: Array.isArray(data) ? data.length : data.total ?? items.length,
+    page: Array.isArray(data) ? 1 : data.page ?? 1,
+    perPage: Array.isArray(data) ? items.length : data.per_page ?? 50,
   };
 }
 
@@ -107,4 +120,16 @@ export async function getLocationCounts(): Promise<{ name: string; count: number
   const data = await fetchJson("/location-counts");
   return Array.isArray(data) ? data : [];
 }
+
+export interface PageSection {
+  id: string;
+  label: string;
+  content: string;
+  type?: string;
+}
+
+export const getPageSections = cache(async (slug: string): Promise<PageSection[]> => {
+  const data = await fetchJson(`/pages/${slug}/sections`);
+  return Array.isArray(data) ? (data as PageSection[]) : [];
+});
 

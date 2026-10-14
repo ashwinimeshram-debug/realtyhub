@@ -6,9 +6,11 @@ import { backendAssetUrl } from "@/lib/api";
 
 export default function ImageSlider({
   images,
-  small = false,
+  small,
+  alt = "Property photo",
 }: {
   images: string[];
+  alt?: string;
   small?: boolean;
 }) {
   const [index, setIndex] = useState(0);
@@ -35,7 +37,7 @@ export default function ImageSlider({
         <Image
           key={images[index]}
           src={backendAssetUrl(images[index])}
-          alt="Property"
+          alt={`${alt} — photo ${index + 1}`}
           fill
           sizes={
             small

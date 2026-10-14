@@ -1,15 +1,15 @@
 import ImageSlider from "./ImageSlider";
-import { encodePropertyId } from "@/lib/api";
+import { propertyHref } from "@/lib/api";
 import { formatPriceDisplay } from "@/lib/priceFormat";
 
 export default function PropertyCard({ p, ctx }: { p: any; ctx?: string }) {
-  const href = `/property/${encodePropertyId(p.id)}${ctx ? `?${ctx}` : ""}`;
+  const href = propertyHref(p.id, p.title, ctx);
   return (
     <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition flex flex-col">
 
       {/* IMAGE */}
       <div className="h-[180px]">
-        <ImageSlider images={p.images} small />
+        <ImageSlider images={p.images} alt={`${p.title} in ${p.location}`} small />
       </div>
 
       {/* CONTENT */}

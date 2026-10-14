@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import API, { backendAssetUrl, encodePropertyId } from "@/lib/api";
+import API, { backendAssetUrl, propertyHref } from "@/lib/api";
 import { formatPriceDisplay } from "@/lib/priceFormat";
 import SectionHeaderEditor from "@/components/admin/SectionHeaderEditor";
 import { useToast } from "@/components/Toast";
@@ -182,7 +182,7 @@ export default function NewPropertiesAdminPage() {
                   </p>
                   <p className="text-gray-500 text-xs mt-1">{p.location || ""}</p>
                   <a
-                    href={`/property/${encodePropertyId(p.id)}`}
+                    href={propertyHref(p.id, p.title)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-2 text-xs text-gray-400 hover:text-[var(--primary)] transition"

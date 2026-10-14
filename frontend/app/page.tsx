@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { backendAssetUrl } from "@/lib/assets";
 import { getHomeData } from "@/lib/serverData";
 import SearchBar from "@/components/SearchBar";
@@ -9,6 +10,12 @@ import FeaturedCarousel from "@/components/home/FeaturedCarousel";
 import NewPropertiesCarousel from "@/components/home/NewPropertiesCarousel";
 import TestimonialsCarousel from "@/components/home/TestimonialsCarousel";
 import FaqAccordion from "@/components/home/FaqAccordion";
+import JsonLd from "@/components/seo/JsonLd";
+import DirectAnswer from "@/components/seo/DirectAnswer";
+import { SITE_URL } from "@/lib/assets";
+import { buildFaqGraph } from "@/lib/seo/schema";
+import { BUYER_FAQ } from "@/lib/seo/answers";
+import { slugifyLocality } from "@/lib/seo/nagpur-geo";
 
 export const revalidate = 60;
 
@@ -124,6 +131,11 @@ export default async function Home() {
   } = await getHomeData();
 
   const isVisible = (key: string) => settings[key] !== "false";
+  const siteName = (settings.site_name || "").trim() || "Nagpur Realty Hub";
+  const faqForSchema =
+    faqs.length > 0
+      ? faqs.map((f: any) => ({ id: f.id, question: f.question, answer: f.answer }))
+      : [];
 
   let sectionOrder: string[] = DEFAULT_ORDER;
   if (settings["section_order"]) {
@@ -221,6 +233,13 @@ export default async function Home() {
 
   return (
     <div>
+      <h1 className="sr-only">
+        {siteName} — Verified Properties for Sale and Rent in Nagpur
+      </h1>
+      {faqForSchema.length > 0 && (
+        <JsonLd data={buildFaqGraph(faqForSchema, `${SITE_URL}/`)} />
+      )}
+
       {/* Hero + Search overlay */}
       <div className="relative mt-2 md:mt-4">
         <HeroSlider heroSlides={heroSlides} animation={settings.hero_animation} />
@@ -243,13 +262,13 @@ export default async function Home() {
             <div className="text-center px-4 md:px-10 py-4">
               <div className="flex flex-wrap justify-center gap-2">
                 {areas.map((a) => (
-                  <a
+                  <Link
                     key={a.name}
-                    href={`/properties?location=${encodeURIComponent(a.name)}`}
+                    href={`/properties/${slugifyLocality(a.name)}`}
                     className="px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-700 hover:bg-[var(--primary)] hover:text-white transition"
                   >
                     Properties In {a.name} ({a.count})
-                  </a>
+                  </Link>
                 ))}
               </div>
             </div>
@@ -264,6 +283,14 @@ export default async function Home() {
           <div className="bg-gray-50">{node}</div>
         </div>
       ))}
+
+      <div className="bg-gray-50">
+        <DirectAnswer
+          items={BUYER_FAQ}
+          title="Buying Property in Nagpur — Quick Answers"
+          subtitle="Short answers to the questions buyers ask us most"
+        />
+      </div>
     </div>
   );
 }

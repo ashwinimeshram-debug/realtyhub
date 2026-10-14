@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getLocationCounts, type LocationCount } from "@/lib/lookups";
 import { useSettings } from "@/hooks/useSettings";
+import { slugifyLocality } from "@/lib/seo/nagpur-geo";
 
 export default function LocationChips() {
   const { settings } = useSettings();
@@ -36,7 +37,7 @@ export default function LocationChips() {
               {col.map((a) => (
                 <Link
                   key={a.name}
-                  href={`/properties?location=${encodeURIComponent(a.name)}`}
+                  href={`/properties/${slugifyLocality(a.name)}`}
                   className="block w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:text-white transition truncate"
                   onMouseEnter={(e) => { (e.target as HTMLElement).style.backgroundColor = "var(--primary)"; (e.target as HTMLElement).style.color = "white"; }}
                   onMouseLeave={(e) => { (e.target as HTMLElement).style.backgroundColor = ""; (e.target as HTMLElement).style.color = ""; }}

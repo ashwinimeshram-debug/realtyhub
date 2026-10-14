@@ -102,7 +102,7 @@ def _allowed_file(ext: str) -> bool:
 
 
 def _is_folder(item: dict) -> bool:
-    return item.get("id") is None or item.get("metadata") is None
+    return item.get("id") is None or item.get("name", "").endswith("/")
 
 
 @gallery_bp.route("/admin/gallery", methods=["GET"])

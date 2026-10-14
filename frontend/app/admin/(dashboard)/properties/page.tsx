@@ -2,8 +2,10 @@
 
 import { Fragment, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import API, { encodePropertyId } from "@/lib/api";
+import API, { encodePropertyId, propertyHref } from "@/lib/api";
+import { SITE_URL } from "@/lib/assets";
 import { useToast } from "@/components/Toast";
+import ShareButtons from "@/components/ShareButtons";
 
 export default function PropertiesListPage() {
   const { toast } = useToast();
@@ -223,6 +225,11 @@ export default function PropertiesListPage() {
                         </td>
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <ShareButtons
+                              mode="trigger"
+                              url={`${SITE_URL}${propertyHref(property.id, property.title)}`}
+                              title={property.title}
+                            />
                             {property.status === "approved" && !property.is_closed && (
                               <button
                                 onClick={() => handleToggleVisibility(property.id)}
@@ -236,7 +243,7 @@ export default function PropertiesListPage() {
                                 {property.is_active ? "Hide" : "Show"}
                               </button>
                             )}
-                            <Link href={`/property/${encodePropertyId(property.id)}`} target="_blank" className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-emerald-600 transition" title="View property">
+                            <Link href={propertyHref(property.id, property.title)} target="_blank" className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-emerald-600 transition" title="View property">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />

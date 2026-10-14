@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { backendAssetUrl, encodePropertyId } from "@/lib/api";
+import { backendAssetUrl, propertyHref } from "@/lib/api";
 import { formatPriceDisplay } from "@/lib/priceFormat";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Autoplay, Pagination } from "swiper/modules";
@@ -69,7 +69,7 @@ export default function NewPropertiesCarousel({
                     {formatPriceDisplay(p.price, p.price_text)}
                   </p>
                   <p className="text-gray-500 text-sm mt-1">{p.location || ""}</p>
-                  <a href={`/property/${encodePropertyId(p.id)}`} className="mt-3 inline-block text-sm font-medium" style={{ color: "var(--primary)" }}>
+                  <a href={propertyHref(p.id, p.title)} className="mt-3 inline-block text-sm font-medium" style={{ color: "var(--primary)" }}>
                     View Details →
                   </a>
                 </div>

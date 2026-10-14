@@ -184,6 +184,74 @@ export default function SettingsPage() {
         </label>
       </div>
 
+      {/* SEO & VERIFICATION */}
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">SEO &amp; Verification</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-4">
+          Optional identifiers used in structured data and search engine verification tags.
+        </p>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Default Meta Description</label>
+          <textarea
+            value={settings.seo_default_description || ""}
+            onChange={(e) => handleChange("seo_default_description", e.target.value)}
+            rows={2}
+            placeholder="Verified properties for sale and rent in Nagpur..."
+            className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">RERA License (agent/project)</label>
+          <input
+            type="text"
+            value={settings.rera_license || ""}
+            onChange={(e) => handleChange("rera_license", e.target.value)}
+            placeholder="e.g. A51800012345"
+            className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Google Site Verification</label>
+            <input
+              type="text"
+              value={settings.seo_google_verification || ""}
+              onChange={(e) => handleChange("seo_google_verification", e.target.value)}
+              placeholder="google-site-verification content value"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Bing Site Verification</label>
+            <input
+              type="text"
+              value={settings.seo_bing_verification || ""}
+              onChange={(e) => handleChange("seo_bing_verification", e.target.value)}
+              placeholder="msvalidate.01 content value"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* SOCIAL SHARE CAPTION */}
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Social Share Caption</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
+          {"Default caption used when sharing a property. Use {title}, {price}, {location} and {url} as placeholders. Leave blank to use the default wording."}
+        </p>
+        <textarea
+          value={settings.share_caption_template || ""}
+          onChange={(e) => handleChange("share_caption_template", e.target.value)}
+          rows={4}
+          placeholder={"🏠 {title}\n💰 {price}\n📍 {location}\n\nView details: {url}"}
+          className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
       {/* ADMIN SESSION */}
       <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Admin Session</h2>
