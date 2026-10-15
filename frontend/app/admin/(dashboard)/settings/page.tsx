@@ -403,6 +403,125 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* WHATSAPP */}
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">WhatsApp Messaging</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
+          Send lead and saved-search alerts over WhatsApp. Choose a provider and enter its
+          credentials. Leave disabled to log messages only.
+        </p>
+
+        <label className="flex items-center gap-3 cursor-pointer mb-4">
+          <button
+            type="button"
+            onClick={() => handleChange("whatsapp_enabled", settings.whatsapp_enabled === "true" ? "false" : "true")}
+            className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+              settings.whatsapp_enabled === "true" ? "bg-green-600" : "bg-gray-300"
+            }`}
+          >
+            <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+              settings.whatsapp_enabled === "true" ? "translate-x-5" : ""
+            }`} />
+          </button>
+          <span className="text-sm text-gray-700 font-medium">
+            {settings.whatsapp_enabled === "true" ? "WhatsApp sending enabled" : "WhatsApp sending disabled"}
+          </span>
+        </label>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+            <select
+              value={settings.whatsapp_provider || "log"}
+              onChange={(e) => handleChange("whatsapp_provider", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="log">Log only (disabled)</option>
+              <option value="meta">Meta WhatsApp Cloud API</option>
+              <option value="twilio">Twilio</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sender Number (with country code)</label>
+            <input
+              type="text"
+              value={settings.whatsapp_from || ""}
+              onChange={(e) => handleChange("whatsapp_from", e.target.value)}
+              placeholder="+919876543210"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          {settings.whatsapp_provider === "meta" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number ID</label>
+                <input
+                  type="text"
+                  value={settings.whatsapp_phone_number_id || ""}
+                  onChange={(e) => handleChange("whatsapp_phone_number_id", e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
+                <input
+                  type="password"
+                  value={settings.whatsapp_access_token || ""}
+                  onChange={(e) => handleChange("whatsapp_access_token", e.target.value)}
+                  placeholder="Leave blank to keep the saved token"
+                  autoComplete="new-password"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Graph API Version</label>
+                <input
+                  type="text"
+                  value={settings.whatsapp_api_version || ""}
+                  onChange={(e) => handleChange("whatsapp_api_version", e.target.value)}
+                  placeholder="v21.0"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </>
+          )}
+          {settings.whatsapp_provider === "twilio" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Twilio Account SID</label>
+                <input
+                  type="text"
+                  value={settings.twilio_account_sid || ""}
+                  onChange={(e) => handleChange("twilio_account_sid", e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Twilio Auth Token</label>
+                <input
+                  type="password"
+                  value={settings.twilio_auth_token || ""}
+                  onChange={(e) => handleChange("twilio_auth_token", e.target.value)}
+                  placeholder="Leave blank to keep the saved token"
+                  autoComplete="new-password"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Twilio WhatsApp From</label>
+                <input
+                  type="text"
+                  value={settings.twilio_whatsapp_from || ""}
+                  onChange={(e) => handleChange("twilio_whatsapp_from", e.target.value)}
+                  placeholder="+14155238886"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* AUTOMATION */}
       <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Automation</h2>
@@ -466,6 +585,28 @@ export default function SettingsPage() {
               When on, the Sign In and Post Property menus are shown on the public website, letting visitors register and list properties. When off, the public site is browse-only and only admins/employees can post.
             </p>
           </div>
+        </label>
+      </div>
+
+      {/* DATA & PRIVACY */}
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Data &amp; Privacy</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
+          DPDP data retention. The scheduled cleanup job anonymizes or deletes personal
+          data older than this many days. Set to 0 to disable automatic cleanup.
+        </p>
+        <label className="block">
+          <span className="text-sm text-gray-700 font-medium">Data retention (days)</span>
+          <input
+            type="number"
+            min={0}
+            value={settings.data_retention_days || "365"}
+            onChange={(e) => handleChange("data_retention_days", e.target.value)}
+            className="mt-1 w-full md:w-64 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Connect requests and contact messages are deleted; leads are anonymized after this period.
+          </p>
         </label>
       </div>
 

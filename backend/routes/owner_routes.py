@@ -1,15 +1,18 @@
+import csv
 import hashlib
+import io
 import json
 import logging
 import os
 import re
 import secrets
 import time
+import zipfile
 from datetime import datetime, timedelta
 from functools import wraps
 
 import bcrypt
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request, send_file
 from flask_jwt_extended import (
     create_access_token, get_jwt_identity, jwt_required, set_access_cookies,
     unset_jwt_cookies,
@@ -20,11 +23,14 @@ from werkzeug.utils import secure_filename
 from extensions import db, limiter
 from routes.settings_routes import is_setting_enabled
 from models.models import (
-    Lead, LeadHistory, Owner, Property, PropertyContact, PropertyFeature,
-    PropertyImage, PropertyTypeField, PropertyValue, PresetFeature,
+    ConsentRecord, Lead, LeadHistory, Owner, Property, PropertyContact,
+    PropertyFeature, PropertyImage, PropertyTypeField, PropertyValue,
+    PresetFeature, SavedSearch,
 )
+from utils.consent import consent_given, record_consent
 from utils.mailer import frontend_url, password_reset_email, send_email_async, verification_email
-from utils.supabase_storage import delete_file, upload_file
+from utils.supabase_storage import delete_file
+from utils.images import process_image_upload
 
 logger = logging.getLogger("realtyhub")
 
@@ -100,6 +106,23 @@ def _parse_price(price_str):
         return None
 
 
+def _parse_coord(value, min_v, max_v):
+    """Parse a latitude/longitude value; return None when missing/invalid."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            return None
+    try:
+        num = float(value)
+    except (ValueError, TypeError):
+        return None
+    if num < min_v or num > max_v:
+        return None
+    return num
+
+
 def _issue_cookie(resp, owner):
     token = create_access_token(identity=f"owner:{owner.id}")
     set_access_cookies(resp, token)
@@ -139,6 +162,8 @@ def register():
         return jsonify({"error": "A valid mobile number is required"}), 400
     if len(password) < MIN_PASSWORD_LENGTH:
         return jsonify({"error": f"Password must be at least {MIN_PASSWORD_LENGTH} characters"}), 400
+    if not consent_given():
+        return jsonify({"error": "Please accept the terms and privacy notice to continue"}), 400
 
     if Owner.query.filter_by(email=email).first():
         return jsonify({"error": "An account with this email already exists"}), 409
@@ -152,6 +177,7 @@ def register():
     )
     db.session.add(owner)
     db.session.commit()
+    record_consent("registration", "owner", email=email, subject_id=owner.id)
     _send_verification(owner)
     return jsonify({
         "message": "Registration successful. Please check your email to verify your account.",
@@ -225,6 +251,8 @@ def login():
 @owner_bp.route("/logout", methods=["POST"])
 @owner_required
 def logout():
+    from utils.auth import revoke_current_token
+    revoke_current_token()
     resp = jsonify({"message": "Logged out"})
     unset_jwt_cookies(resp)
     return resp
@@ -354,6 +382,8 @@ def my_property(id):
         "price": float(prop.price) if prop.price is not None else None,
         "price_text": prop.price_text,
         "location": prop.location,
+        "latitude": float(prop.latitude) if prop.latitude is not None else None,
+        "longitude": float(prop.longitude) if prop.longitude is not None else None,
         "transaction_type": prop.transaction_type,
         "property_type": prop.property_type,
         "status": prop.status,
@@ -411,6 +441,11 @@ def update_my_property(id):
     prop.title = title
     prop.location = location
 
+    if "latitude" in data:
+        prop.latitude = _parse_coord(data.get("latitude"), -90, 90)
+    if "longitude" in data:
+        prop.longitude = _parse_coord(data.get("longitude"), -180, 180)
+
     if data.get("description") is not None:
         prop.description = data.get("description")
 
@@ -433,9 +468,10 @@ def update_my_property(id):
         else:
             prop.price = _parse_price(data.get("price"))
 
-    # Re-review rule: owner edits to approved/rejected properties go back to pending
+    # Re-review rule: only edits to rejected properties go back to pending for
+    # re-approval. Edits to already-approved properties stay approved.
     re_review = False
-    if prop.status in ("approved", "rejected"):
+    if prop.status == "rejected":
         prop.status = "pending"
         prop.is_active = False
         re_review = True
@@ -526,7 +562,7 @@ def update_my_property(id):
                     return jsonify({"error": "File too large (max 10MB)"}), 400
                 filename = f"{time.time_ns()}_{secure_filename(file.filename)}"
                 path = f"{safe_folder}/{filename}" if safe_folder else filename
-                url_path = upload_file(file, path)
+                url_path = process_image_upload(file, path)
                 saved_paths.append(path)
                 db.session.add(PropertyImage(property_id=id, image_url=url_path, order=start_order + i))
         except Exception:
@@ -801,3 +837,178 @@ def reopen_my_lead(id):
     ))
     db.session.commit()
     return jsonify({"message": "Lead reopened"})
+
+
+_EXPORT_CSV_COLUMNS = {
+    "account": ["id", "name", "email", "mobile", "is_verified", "is_active", "created_at", "last_login"],
+    "properties": ["id", "listing_id", "title", "description", "location", "price", "status", "is_active", "created_at"],
+    "leads": ["id", "property_id", "name", "email", "mobile", "source", "stage", "lead_status", "notes", "created_at"],
+    "saved_searches": ["id", "name", "params", "notify", "is_active", "created_at"],
+    "consents": ["purpose", "version", "granted", "created_at"],
+}
+
+
+def _csv_cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
+def _csv_bytes(columns, rows):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([_csv_cell(row.get(col)) for col in columns])
+    # utf-8-sig so Excel opens non-ASCII (e.g. the rupee sign) correctly.
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def _export_data_zip(payload):
+    """Bundle the export sections into a .zip of Excel-friendly .csv files."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, columns in _EXPORT_CSV_COLUMNS.items():
+            section = payload.get(name)
+            if isinstance(section, list):
+                rows = section
+            elif section:
+                rows = [section]
+            else:
+                rows = []
+            zf.writestr(f"{name}.csv", _csv_bytes(columns, rows))
+    buf.seek(0)
+    filename = f"my-realtyhub-data-{datetime.utcnow().strftime('%Y-%m-%d')}.zip"
+    return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=filename)
+
+
+@owner_bp.route("/data-export", methods=["GET"])
+@owner_required
+def export_my_data():
+    """DPDP data portability: return everything we hold about this owner.
+
+    Defaults to JSON; pass ?format=csv for a .zip of .csv files (also accepts
+    ?format=zip).
+    """
+    owner = g.owner
+    props = Property.query.filter_by(owner_id=owner.id).all()
+    prop_ids = [p.id for p in props]
+
+    leads = []
+    if prop_ids:
+        for lead in Lead.query.filter(Lead.property_id.in_(prop_ids)).order_by(Lead.created_at.desc()).all():
+            leads.append({
+                "id": lead.id,
+                "property_id": lead.property_id,
+                "name": lead.name,
+                "email": lead.email,
+                "mobile": lead.mobile,
+                "source": lead.source,
+                "stage": lead.stage,
+                "lead_status": lead.lead_status,
+                "notes": lead.notes,
+                "created_at": lead.created_at.isoformat() if lead.created_at else None,
+            })
+
+    searches = [
+        {"id": s.id, "name": s.name, "params": s.params, "notify": bool(s.notify),
+         "is_active": bool(s.is_active), "created_at": s.created_at.isoformat() if s.created_at else None}
+        for s in SavedSearch.query.filter_by(owner_id=owner.id).all()
+    ]
+
+    consents = [
+        {"purpose": c.purpose, "version": c.version, "granted": bool(c.granted),
+         "created_at": c.created_at.isoformat() if c.created_at else None}
+        for c in ConsentRecord.query.filter_by(subject_type="owner", subject_id=owner.id).all()
+    ]
+
+    payload = {
+        "exported_at": datetime.utcnow().isoformat(),
+        "account": {
+            "id": owner.id,
+            "name": owner.name,
+            "email": owner.email,
+            "mobile": owner.mobile,
+            "is_verified": bool(owner.is_verified),
+            "is_active": bool(owner.is_active),
+            "created_at": owner.created_at.isoformat() if owner.created_at else None,
+            "last_login": owner.last_login.isoformat() if owner.last_login else None,
+        },
+        "properties": [
+            {"id": p.id, "listing_id": p.listing_id, "title": p.title,
+             "description": p.description, "location": p.location,
+             "price": float(p.price) if p.price is not None else None,
+             "status": p.status, "is_active": bool(p.is_active),
+             "created_at": p.created_at.isoformat() if p.created_at else None}
+            for p in props
+        ],
+        "leads": leads,
+        "saved_searches": searches,
+        "consents": consents,
+    }
+
+    if request.args.get("format", "json").lower() in ("csv", "zip"):
+        return _export_data_zip(payload)
+
+    return jsonify(payload)
+
+
+@owner_bp.route("/delete-account", methods=["POST"])
+@owner_required
+def delete_my_account():
+    """DPDP erasure: anonymize the owner and scrub their personal data, then deactivate.
+
+    The row is kept (anonymized) to preserve referential integrity with leads,
+    properties and audit history.
+    """
+    owner = g.owner
+
+    props = Property.query.filter_by(owner_id=owner.id).all()
+    prop_ids = [p.id for p in props]
+
+    if prop_ids:
+        Lead.query.filter(Lead.property_id.in_(prop_ids)).update(
+            {
+                Lead.name: "Redacted",
+                Lead.email: None,
+                Lead.mobile: None,
+                Lead.notes: None,
+            },
+            synchronize_session=False,
+        )
+        PropertyContact.query.filter(PropertyContact.property_id.in_(prop_ids)).delete(
+            synchronize_session=False
+        )
+        Property.query.filter(Property.id.in_(prop_ids)).update(
+            {Property.is_active: False, Property.is_closed: True},
+            synchronize_session=False,
+        )
+
+    SavedSearch.query.filter_by(owner_id=owner.id).delete(synchronize_session=False)
+    ConsentRecord.query.filter_by(subject_type="owner", subject_id=owner.id).delete(
+        synchronize_session=False
+    )
+
+    owner.name = "Deleted user"
+    owner.email = f"deleted+{owner.id}@deleted.local"
+    owner.mobile = None
+    owner.password = bcrypt.hashpw(secrets.token_urlsafe(24).encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    owner.verification_token = None
+    owner.verification_expiry = None
+    owner.reset_token = None
+    owner.reset_token_expiry = None
+    owner.is_verified = False
+    owner.is_active = False
+
+    db.session.commit()
+
+    from utils.auth import revoke_current_token
+    revoke_current_token()
+
+    resp = jsonify({"message": "Your account and personal data have been deleted."})
+    unset_jwt_cookies(resp)
+    return resp

@@ -6,6 +6,7 @@ from sqlalchemy import func
 from datetime import datetime, timedelta
 from utils.helpers import paginate
 from utils.permissions import has_permission
+from utils.sla import apply_sla, mark_first_response
 
 leads_bp = Blueprint("leads", __name__)
 
@@ -97,6 +98,13 @@ def _lead_dict(l, admin_map=None, followup_map=None):
         "rejection_reason": l.rejection_reason,
         "archived_at": l.archived_at.isoformat() if l.archived_at else None,
         "notes": l.notes,
+        "first_response_at": l.first_response_at.isoformat() if l.first_response_at else None,
+        "sla_due_at": l.sla_due_at.isoformat() if l.sla_due_at else None,
+        "sla_overdue": bool(
+            l.sla_due_at is not None
+            and l.first_response_at is None
+            and l.sla_due_at < datetime.utcnow()
+        ),
     }
 
 
@@ -273,6 +281,7 @@ def create_lead():
     lead = Lead(name=name, email=data.get("email"), mobile=data.get("mobile"),
                 source=data.get("source", "website"), property_id=data.get("property_id"),
                 status=data.get("status"))
+    apply_sla(lead)
     db.session.add(lead)
     db.session.commit()
     _auto_assign_lead(lead)
@@ -388,6 +397,7 @@ def add_interaction(id):
         created_by=int(get_jwt_identity()),
     )
     db.session.add(history)
+    mark_first_response(lead)
     if data.get("status_id") or data.get("status"):
         lead.status = data.get("status_id") or data["status"]
     if data.get("follow_up_date") and followup_date:
@@ -417,6 +427,8 @@ def update_lead_stage(id):
         lead.stage = data["stage"]
     if "lead_status" in data:
         lead.lead_status = data["lead_status"]
+    if lead.stage and lead.stage.upper() != "NEW":
+        mark_first_response(lead)
     if "follow_up_at" in data:
         if data["follow_up_at"]:
             try:
@@ -652,6 +664,14 @@ def lead_stats():
 
     no_action = base_query.filter_by(stage="NEW", archived_at=None).count()
 
+    sla_overdue = base_query.filter(
+        Lead.first_response_at.is_(None),
+        Lead.sla_due_at.isnot(None),
+        Lead.sla_due_at < now,
+        Lead.lead_status == "ACTIVE",
+        Lead.archived_at.is_(None),
+    ).count()
+
     return jsonify({
         "new_today": new_today,
         "site_visits": site_visits,
@@ -661,6 +681,7 @@ def lead_stats():
         "won_month": won_month,
         "lost_month": lost_month,
         "no_action": no_action,
+        "sla_overdue": sla_overdue,
     })
 
 
@@ -740,6 +761,7 @@ def create_lead_from_contact(contact_id):
         return jsonify({"error": "Contact not found"}), 404
     lead = Lead(name=pc.name, email=pc.email, mobile=pc.mobile,
                 source="connect", property_id=pc.property_id)
+    apply_sla(lead)
     db.session.add(lead)
     db.session.commit()
     _auto_assign_lead(lead)

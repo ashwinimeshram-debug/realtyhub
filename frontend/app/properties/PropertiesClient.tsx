@@ -4,6 +4,7 @@ import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import PropertyCard from "@/components/PropertyCard";
 import SearchBar from "@/components/SearchBar";
+import SavedSearchAlertButton from "@/components/SavedSearchAlertButton";
 import { sortProperties } from "@/lib/propertySort";
 import { slugifyLocality } from "@/lib/seo/nagpur-geo";
 
@@ -91,6 +92,7 @@ export default function PropertiesClient({
             {total === 1 ? "Property" : "Properties"}
           </p>
           <div className="flex items-center gap-2">
+            <SavedSearchAlertButton query={listQuery} />
             <span className="text-sm text-gray-500">Sort By:</span>
             <select
               value={sortBy}

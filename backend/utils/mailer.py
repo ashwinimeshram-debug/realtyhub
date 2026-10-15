@@ -204,6 +204,45 @@ def new_lead_email(lead, prop, owner_handled):
     return _shell("New Lead", "New visitor enquiry", body)
 
 
+def saved_search_alert_email(saved, properties, unsubscribe_url, description=""):
+    rows = []
+    for prop in properties:
+        rows.append(
+            f'<div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:10px 0;">'
+            f'<a href="{property_url(prop.id)}" style="color:#0f4cba;font-weight:bold;'
+            f'text-decoration:none;font-size:15px;">{prop.title}</a>'
+            f'<p style="margin:6px 0 0;font-size:13px;color:#6b7280;">'
+            f'{(prop.location or "")} &middot; {format_price(prop)}</p></div>'
+        )
+    body = [
+        _para(f"Hi {saved.name or 'there'},"),
+        _para(f"We found <strong>{len(properties)}</strong> new "
+              f"{'property' if len(properties) == 1 else 'properties'} matching your saved search"
+              + (f' (<strong>{description}</strong>)' if description else "") + ":"),
+        *rows,
+        _btn("View all matches", frontend_url("properties")),
+        _para(f'<a href="{unsubscribe_url}" style="color:#9ca3af;font-size:12px;">'
+              f'Unsubscribe from these alerts</a>'),
+    ]
+    return _shell("New matches", "New matches for your saved search", body)
+
+
+def lead_sla_reminder_email(lead, prop, admin_name, minutes_overdue):
+    body = [
+        _para(f"Hi {admin_name},"),
+        _para("A lead assigned to you is awaiting its <strong>first response</strong> "
+              "and has crossed the response-time target:"),
+        _row("Lead", lead.name),
+        _row("Mobile", lead.mobile or "-"),
+        _row("Email", lead.email or "-"),
+        _row("Property", prop.title if prop else "-"),
+        _row("Listing ID", (prop.listing_id if prop else None) or "-"),
+        _row("Overdue by", f"{minutes_overdue} minutes"),
+        _btn("Open Leads Panel", frontend_url("admin/leads"), "#dc2626"),
+    ]
+    return _shell("SLA Reminder", "Lead awaiting first response", body)
+
+
 def submission_received_email(prop, owner_name):
     body = [
         _para(f"Hi {owner_name},"),

@@ -3,9 +3,10 @@ import {
   API_BASE_URL,
   BACKEND_BASE_URL,
   backendAssetUrl,
+  imageVariants,
 } from "./assets";
 
-export { API_BASE_URL, BACKEND_BASE_URL, backendAssetUrl };
+export { API_BASE_URL, BACKEND_BASE_URL, backendAssetUrl, imageVariants };
 
 let _csrfToken: string | null =
   typeof window !== "undefined"

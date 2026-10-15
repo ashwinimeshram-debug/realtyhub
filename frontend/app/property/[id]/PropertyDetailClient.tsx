@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import API, { parsePropertySlug, propertyHref } from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
 import { SITE_URL } from "@/lib/assets";
 import { useToast } from "@/components/Toast";
 import { useSettings } from "@/hooks/useSettings";
 import ShareButtons from "@/components/ShareButtons";
 import ImageSlider from "@/components/ImageSlider";
+import ConsentCheckbox from "@/components/ConsentCheckbox";
 import Link from "next/link";
 import { formatPriceDisplay } from "@/lib/priceFormat";
 import { sortProperties } from "@/lib/propertySort";
@@ -30,7 +32,7 @@ export default function PropertyDetailClient({
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", mobile: "" });
+  const [form, setForm] = useState({ name: "", email: "", mobile: "", consent: false });
 
   useEffect(() => {
     if (initialProperty) setProperty(initialProperty);
@@ -97,12 +99,21 @@ export default function PropertyDetailClient({
     if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       toast("Please enter a valid email address", "warning"); return;
     }
+    if (!form.consent) {
+      toast("Please accept the privacy notice to continue", "warning"); return;
+    }
 
     setSubmitting(true);
     try {
       const res = await API.post(`/property/${propertyId}/contact`, form);
       setSubmitMsg(res.data?.message || "Thank you! Our team will contact you shortly.");
       setSubmitted(true);
+      trackEvent("generate_lead", {
+        content_type: "property",
+        item_id: propertyId,
+        content_name: property?.title,
+        item_location: property?.location,
+      });
     } catch (err: any) {
       toast(err.response?.data?.error || "Something went wrong", "error");
     }
@@ -113,7 +124,7 @@ export default function PropertyDetailClient({
     setShowModal(false);
     setSubmitted(false);
     setSubmitMsg("");
-    setForm({ name: "", email: "", mobile: "" });
+    setForm({ name: "", email: "", mobile: "", consent: false });
   };
 
   if (!property) {
@@ -255,6 +266,13 @@ export default function PropertyDetailClient({
                     className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                   />
                   <p className="text-xs text-gray-400 mt-1">For multiple numbers, separate with comma</p>
+
+                  <ConsentCheckbox
+                    checked={form.consent}
+                    onChange={(v) => setForm({ ...form, consent: v })}
+                    disabled={submitting}
+                    className="pt-1"
+                  />
 
                   <button
                     onClick={handleContact}

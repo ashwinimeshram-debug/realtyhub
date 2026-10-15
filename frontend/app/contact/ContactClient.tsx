@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import API from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
 import SectionContent from "@/components/SectionContent";
+import ConsentCheckbox from "@/components/ConsentCheckbox";
 import { useToast } from "@/components/Toast";
 
 interface Section {
@@ -22,7 +24,7 @@ const USED_LABELS = [
 
 export default function ContactClient({ sections }: { sections: Section[] }) {
   const { toast } = useToast();
-  const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", message: "", consent: false });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -42,12 +44,16 @@ export default function ContactClient({ sections }: { sections: Section[] }) {
     if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       toast("Please enter a valid email address", "warning"); setSubmitting(false); return;
     }
+    if (!form.consent) {
+      toast("Please accept the privacy notice to continue", "warning"); return;
+    }
     setSubmitting(true);
     try {
       const res = await API.post("/contact", form);
       if (res.status === 201) {
         setSubmitted(true);
-        setForm({ name: "", email: "", phone: "", message: "" });
+        setForm({ name: "", email: "", phone: "", message: "", consent: false });
+        trackEvent("generate_lead", { content_type: "contact" });
       }
     } catch (error: any) {
       toast(error.response?.data?.error || "Server error", "error");
@@ -245,6 +251,13 @@ export default function ContactClient({ sections }: { sections: Section[] }) {
                     <textarea name="message" placeholder="How can we help you?" rows={6} required value={form.message} onChange={handleChange} disabled={submitting}
                       className="form-input" style={{ resize: "vertical" }} />
                   </div>
+
+                  <ConsentCheckbox
+                    checked={form.consent}
+                    onChange={(v) => setForm({ ...form, consent: v })}
+                    disabled={submitting}
+                    className="mb-4"
+                  />
 
                   <button type="submit" disabled={submitting}
                     className="btn btn-primary w-full mb-4" style={{ opacity: submitting ? 0.7 : 1 }}>

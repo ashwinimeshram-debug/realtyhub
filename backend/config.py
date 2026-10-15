@@ -92,4 +92,10 @@ class Config:
     RATELIMIT_DEFAULT = "200/minute"
     RATELIMIT_STORAGE_URI = "memory://"
 
+    # Shared secret for external cron/scheduler callbacks (X-Cron-Key header).
+    CRON_KEY = os.getenv("CRON_KEY", "")
+
+    # Lead first-response SLA (minutes) used by reminders (Phase 1.2).
+    LEAD_SLA_MINUTES = int(os.getenv("LEAD_SLA_MINUTES", "15"))
+
     VALID_PAGES = ["about", "privacy", "terms", "contact"]

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import API from "@/lib/api";
-import { backendAssetUrl } from "@/lib/api";
+import SmartImage from "@/components/SmartImage";
 import { useOwnerAuth } from "@/hooks/useOwnerAuth";
 import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/hooks/useConfirm";
@@ -26,6 +26,46 @@ interface MyProperty {
   image: string | null;
   lead_count: number;
   created_at: string | null;
+}
+
+interface SavedSearchRow {
+  id: number;
+  name: string | null;
+  params: Record<string, string>;
+  notify: boolean;
+  is_active: boolean;
+  last_notified_at: string | null;
+  created_at: string | null;
+}
+
+const SEARCH_LABELS: Record<string, string> = {
+  q: "Keyword",
+  location: "Locality",
+  type: "Listing",
+  category: "Type",
+  min_price: "Min price",
+  max_price: "Max price",
+  featured: "Featured",
+  near: "Near",
+  radius_km: "Radius (km)",
+  timeline: "Timeline",
+};
+
+function describeSearch(params: Record<string, string>) {
+  const parts = Object.entries(params).map(
+    ([k, v]) => `${SEARCH_LABELS[k] || k}: ${v}`
+  );
+  return parts.length ? parts.join(" · ") : "All properties";
+}
+
+// Builds a /properties query string, dropping non-filter keys (e.g. `timeline`).
+function searchQuery(params: Record<string, string>) {
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (k === "timeline") return;
+    if (v) sp.set(k, v);
+  });
+  return sp.toString();
 }
 
 function StatusBadge({ status, isClosed }: { status: string; isClosed: boolean }) {
@@ -55,10 +95,41 @@ export default function MyAccountPage() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
 
-  const [tab, setTab] = useState<"properties" | "leads">("properties");
+  const [tab, setTab] = useState<"properties" | "leads" | "searches">("properties");
   const [properties, setProperties] = useState<MyProperty[]>([]);
+  const [searches, setSearches] = useState<SavedSearchRow[]>([]);
+  const [searchesLoading, setSearchesLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
+
+  const loadSearches = useCallback(async () => {
+    setSearchesLoading(true);
+    try {
+      const res = await API.get("/saved-searches");
+      setSearches(res.data.items || []);
+    } catch (err: any) {
+      toast(err?.response?.data?.error || "Failed to load saved searches", "error");
+    } finally {
+      setSearchesLoading(false);
+    }
+  }, [toast]);
+
+  const handleDeleteSearch = async (s: SavedSearchRow) => {
+    const ok = await confirm({
+      title: "Delete this saved search?",
+      message: "You will stop receiving alerts for these filters.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await API.delete(`/saved-searches/${s.id}`);
+      toast("Saved search deleted", "success");
+      loadSearches();
+    } catch (err: any) {
+      toast(err?.response?.data?.error || "Failed to delete", "error");
+    }
+  };
 
   const loadProperties = useCallback(async () => {
     setLoading(true);
@@ -75,7 +146,8 @@ export default function MyAccountPage() {
   useEffect(() => {
     if (!owner) return;
     if (tab === "properties") loadProperties();
-  }, [owner, tab, loadProperties]);
+    if (tab === "searches") loadSearches();
+  }, [owner, tab, loadProperties, loadSearches]);
 
   const handleClose = async (p: MyProperty) => {
     const ok = await confirm({
@@ -121,6 +193,41 @@ export default function MyAccountPage() {
     toast("Logged out", "info");
   };
 
+  const handleExportData = async () => {
+    try {
+      const res = await API.get("/owner/data-export?format=csv", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `my-realtyhub-data-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast("Your data export is downloading", "success");
+    } catch (err: any) {
+      toast("Failed to export data", "error");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    const ok = await confirm({
+      title: "Delete your account and personal data?",
+      message:
+        "This permanently removes your personal information, hides your listings and deletes your saved searches. This cannot be undone.",
+      confirmLabel: "Delete Account",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await API.post("/owner/delete-account");
+      toast("Your account has been deleted", "success");
+      await logout();
+    } catch (err: any) {
+      toast(err?.response?.data?.error || "Failed to delete account", "error");
+    }
+  };
+
   if (authLoading) {
     return <div className="min-h-[50vh] text-center py-20 text-gray-400">Loading...</div>;
   }
@@ -150,12 +257,14 @@ export default function MyAccountPage() {
               {owner.name} · {owner.email}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {!owner.is_verified && (
               <button onClick={handleResendVerification} disabled={resending} className="btn btn-sm border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100">
                 {resending ? "Sending..." : "Verify Email"}
               </button>
             )}
+            <button onClick={handleExportData} className="btn btn-sm btn-ghost">Download My Data (CSV)</button>
+            <button onClick={handleDeleteAccount} className="btn btn-sm border border-red-200 text-red-600 hover:bg-red-50">Delete Account</button>
             <button onClick={handleLogout} className="btn btn-sm btn-ghost">Logout</button>
           </div>
         </div>
@@ -182,6 +291,13 @@ export default function MyAccountPage() {
           >
             Leads
           </button>
+          <button
+            onClick={() => setTab("searches")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "searches" ? "text-white" : "text-gray-600 hover:bg-gray-50"}`}
+            style={tab === "searches" ? { backgroundColor: "var(--primary)" } : {}}
+          >
+            Saved Searches {searches.length > 0 && `(${searches.length})`}
+          </button>
         </div>
 
         {tab === "properties" ? (
@@ -201,7 +317,7 @@ export default function MyAccountPage() {
                 <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
                   <div className="h-40 bg-gray-100 overflow-hidden relative">
                     {p.image ? (
-                      <img src={backendAssetUrl(p.image)} alt={p.title} className="w-full h-full object-cover" />
+                      <SmartImage src={p.image} alt={p.title} sizes="(max-width: 768px) 100vw, 50vw" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-300">
                         <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -258,8 +374,53 @@ export default function MyAccountPage() {
               ))}
             </div>
           </>
-        ) : (
+        ) : tab === "leads" ? (
           <OwnerLeadsBoard />
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 mb-4">
+              Get notified when new properties match a search you saved from the{" "}
+              <Link href="/properties" className="text-[var(--primary)] hover:underline">properties page</Link>.
+            </p>
+            {searchesLoading && <p className="text-gray-400 text-sm py-6">Loading saved searches...</p>}
+            {!searchesLoading && searches.length === 0 && (
+              <div className="bg-white rounded-xl border border-gray-100 p-10 text-center shadow-sm">
+                <p className="text-gray-500 text-sm">You have no saved searches yet.</p>
+                <Link href="/properties" className="btn btn-primary mt-4">Browse Properties</Link>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {searches.map((s) => (
+                <div key={s.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="font-semibold text-sm" style={{ color: "var(--text-dark)" }}>
+                      {s.name || "Saved search"}
+                    </h3>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                      s.is_active && s.notify ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                    }`}>
+                      {s.is_active && s.notify ? "Active" : "Paused"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2 mb-3">{describeSearch(s.params)}</p>
+                  <div className="mt-auto pt-3 border-t border-gray-50 flex justify-between items-center">
+                    <Link
+                      href={`/properties?${searchQuery(s.params)}`}
+                      className="text-sm font-medium text-[var(--primary)] hover:underline"
+                    >
+                      View matches
+                    </Link>
+                    <button
+                      onClick={() => handleDeleteSearch(s)}
+                      className="text-sm text-red-600 hover:underline"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

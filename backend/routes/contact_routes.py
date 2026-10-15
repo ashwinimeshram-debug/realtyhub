@@ -4,6 +4,7 @@ from extensions import db, limiter
 from models.contactus import Contactus
 from models.models import Admin, PropertyContact, Property
 from sqlalchemy.orm import joinedload
+from utils.consent import consent_given, record_consent
 from utils.mailer import contactus_admin_email, send_email_async
 
 contact_bp = Blueprint("contact", __name__)
@@ -17,9 +18,12 @@ def create_contact():
         return jsonify({"error": "All fields required"}), 400
     if len(data.get("name", "")) > 100 or len(data.get("email", "")) > 120 or len(data.get("phone", "")) > 20 or len(data.get("message", "")) > 2000:
         return jsonify({"error": "Input too long"}), 400
+    if not consent_given():
+        return jsonify({"error": "Please accept the privacy notice to continue"}), 400
     new_contact = Contactus(name=data["name"], email=data["email"], phone=data["phone"], message=data["message"])
     db.session.add(new_contact)
     db.session.commit()
+    record_consent("contact", "visitor", email=data.get("email"))
 
     admins = Admin.query.filter_by(role="admin", is_active=True).all()
     for admin in admins:

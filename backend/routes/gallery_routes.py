@@ -5,7 +5,9 @@ from flask_jwt_extended import jwt_required
 from werkzeug.utils import secure_filename
 from extensions import db
 from models.models import AboutGalleryImage
-from utils.supabase_storage import upload_file, delete_file, rename_file, list_files, create_folder, delete_folder
+from utils.supabase_storage import delete_file, rename_file, list_files, create_folder, delete_folder
+from utils.images import process_image_upload
+from utils.image_paths import variant_paths
 from urllib.parse import urlparse
 
 gallery_bp = Blueprint("gallery", __name__)
@@ -248,7 +250,7 @@ def upload_gallery_files():
 
         filename = f"{time.time_ns()}_{secure_filename(file.filename)}"
         path = f"{safe_folder}/{filename}" if safe_folder else filename
-        url_path = upload_file(file, path)
+        url_path = process_image_upload(file, path)
         uploaded.append({"filename": file.filename, "url": url_path})
 
     return jsonify({"uploaded": uploaded, "errors": errors}), 201 if uploaded else 400
@@ -284,6 +286,15 @@ def rename_gallery_file():
         new_url = rename_file(old_path, new_path)
     except Exception:
         return jsonify({"error": "Rename failed (file may not exist)"}), 404
+
+    # Move generated variants alongside the original (best effort).
+    old_variants = variant_paths(old_path)
+    new_variants = variant_paths(new_path)
+    for old_v, new_v in zip(old_variants, new_variants):
+        try:
+            rename_file(old_v, new_v)
+        except Exception:
+            pass
 
     from models.models import PropertyImage, AboutGalleryImage, Admin, TeamMember
     from models.cms_models import HeroSlide, Service
@@ -333,7 +344,7 @@ def crop_gallery_file():
     new_path = f"{folder}/{new_name}" if folder else new_name
 
     try:
-        new_url = upload_file(file, new_path)
+        new_url = process_image_upload(file, new_path)
     except Exception:
         return jsonify({"error": "Upload failed"}), 500
 

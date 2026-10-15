@@ -32,7 +32,15 @@ def upload_file(file_obj, path: str, overwrite: bool = False) -> str:
     if _local_enabled():
         dest = _local_abs(path)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        file_obj.save(dest)
+        if isinstance(file_obj, (bytes, bytearray)):
+            with open(dest, "wb") as fh:
+                fh.write(file_obj)
+        else:
+            try:
+                file_obj.seek(0)
+            except Exception:
+                pass
+            file_obj.save(dest)
         return _local_url(path)
     client = _get_client()
     data = file_obj.read() if hasattr(file_obj, "read") else file_obj
@@ -44,7 +52,18 @@ def upload_file(file_obj, path: str, overwrite: bool = False) -> str:
     return f"{supabase_url}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
 
 def delete_file(path):
-    paths = list(path) if isinstance(path, (list, tuple)) else [path]
+    from utils.image_paths import variant_paths
+
+    base = list(path) if isinstance(path, (list, tuple)) else [path]
+    # Also remove any generated WebP variants for image paths.
+    paths = []
+    for p in base:
+        if not p:
+            continue
+        paths.append(p)
+        for vp in variant_paths(p):
+            if vp not in paths:
+                paths.append(vp)
     if _local_enabled():
         for p in paths:
             dest = _local_abs(p)

@@ -1,18 +1,22 @@
-import type { LocalityInfo } from "@/lib/seo/types";
+import type { GeoPoint, LocalityInfo } from "@/lib/seo/types";
 import { describeLocality, localityGeo } from "@/lib/seo/nagpur-geo";
 
 export default function LocalityFacts({
   locationName,
   locality,
+  geo,
 }: {
   locationName: string;
   locality?: LocalityInfo;
+  geo?: GeoPoint | null;
 }) {
   if (!locationName) return null;
 
-  const geo = locality?.geo || localityGeo(locationName);
+  const coords = geo || locality?.geo || localityGeo(locationName);
   const description = locality?.description || describeLocality(locationName);
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${geo.latitude},${geo.longitude}`;
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${coords.latitude},${coords.longitude}`;
+  const span = 0.01;
+  const osmSrc = `https://www.openstreetmap.org/export/embed.html?bbox=${coords.longitude - span},${coords.latitude - span},${coords.longitude + span},${coords.latitude + span}&layer=mapnik&marker=${coords.latitude},${coords.longitude}`;
 
   return (
     <section
@@ -55,6 +59,16 @@ export default function LocalityFacts({
               </ul>
             </div>
           )}
+        </div>
+
+        <div className="mt-4 rounded-lg overflow-hidden border border-gray-200">
+          <iframe
+            title={`Map of ${locationName}`}
+            src={osmSrc}
+            loading="lazy"
+            className="w-full"
+            style={{ height: 260, border: 0 }}
+          />
         </div>
 
         <a

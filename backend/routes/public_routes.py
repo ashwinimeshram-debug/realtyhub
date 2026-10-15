@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from models.models import db, Admin, Owner, Property, PropertyImage, PropertyContact, PropertyTypeField, PropertyValue, Lead, PresetFeature, PropertyFeature
 from utils.helpers import generate_listing_id, paginate
-from sqlalchemy import or_
+from sqlalchemy import or_, func
+from utils.search import apply_property_filters
 from utils.mailer import (
     connect_ack_visitor_email, connect_owner_email, new_lead_email,
     send_email_async, submission_received_email, submission_confirmed_email,
@@ -11,10 +12,12 @@ from routes.settings_routes import is_setting_enabled
 from extensions import limiter
 import os
 import json
+import math
 import logging
 from werkzeug.utils import secure_filename
 from datetime import datetime
-from utils.supabase_storage import upload_file, delete_file
+from utils.supabase_storage import delete_file
+from utils.images import process_image_upload
 
 logger = logging.getLogger("realtyhub")
 
@@ -60,6 +63,23 @@ def _parse_price(price_str):
         return None
 
 
+def _parse_coord(value, min_v, max_v):
+    """Parse a latitude/longitude value; return None when missing/invalid."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            return None
+    try:
+        num = float(value)
+    except (ValueError, TypeError):
+        return None
+    if num < min_v or num > max_v:
+        return None
+    return num
+
+
 @public_bp.route("/submit-property", methods=["POST"])
 @jwt_required()
 @limiter.limit("10/hour")
@@ -93,6 +113,8 @@ def submit_property():
         prop = Property(
             title=data.get("title"), description=data.get("description"),
             price=price, price_text=price_text, location=data.get("location"),
+            latitude=_parse_coord(data.get("latitude"), -90, 90),
+            longitude=_parse_coord(data.get("longitude"), -180, 180),
             transaction_type=data.get("transaction_type"),
             property_type=data.get("property_type"),
             status="approved" if auto_approve else "pending",
@@ -132,7 +154,7 @@ def submit_property():
                         return jsonify({"error": "Total upload size exceeds 50MB"}), 400
                     filename = f"{int(datetime.utcnow().timestamp())}_{secure_filename(file.filename)}"
                     path = f"{safe_folder}/{filename}" if safe_folder else filename
-                    url_path = upload_file(file, path)
+                    url_path = process_image_upload(file, path)
                     _saved_paths.append(path)
                     db.session.add(PropertyImage(property_id=prop.id, image_url=url_path))
         except Exception:
@@ -202,42 +224,29 @@ def get_properties():
         _owner_visible_condition(),
     )
 
-    location = request.args.get("location")
-    transaction_type = request.args.get("type")
-    property_type = request.args.get("category")
-    min_price = request.args.get("min_price")
-    max_price = request.args.get("max_price")
-    featured = request.args.get("featured")
+    near = request.args.get("near")
     keyword = request.args.get("q")
     sort = request.args.get("sort", "newest")
 
-    if location:
-        query = query.filter(Property.location.ilike(f"%{location}%"))
-    if keyword:
-        query = query.filter(Property.title.ilike(f"%{keyword}%"))
-    if transaction_type:
-        query = query.filter_by(transaction_type=transaction_type)
-    if property_type:
-        query = query.filter_by(property_type=property_type)
-    if min_price:
-        try:
-            query = query.filter(Property.price >= float(min_price))
-        except (ValueError, TypeError):
-            return jsonify({"error": "Invalid min_price"}), 400
-    if max_price:
-        try:
-            query = query.filter(Property.price <= float(max_price))
-        except (ValueError, TypeError):
-            return jsonify({"error": "Invalid max_price"}), 400
-    if featured == "true":
-        query = query.filter_by(is_featured=True)
+    query, filter_err, keyword = apply_property_filters(query, request.args)
+    if filter_err:
+        return jsonify({"error": filter_err}), 400
 
-    if sort == "price_low":
+    if near:
+        pass  # ordering already applied by _apply_near
+    elif sort == "price_low":
         query = query.order_by(Property.price.asc())
     elif sort == "price_high":
         query = query.order_by(Property.price.desc())
     elif sort == "featured":
         query = query.order_by(Property.is_featured.desc(), Property.created_at.desc())
+    elif keyword and sort in ("relevance", "newest", ""):
+        # pg_trgm similarity ranking (falls back to recency on ties)
+        similarity = func.greatest(
+            func.word_similarity(keyword, Property.title),
+            func.word_similarity(keyword, Property.location),
+        )
+        query = query.order_by(similarity.desc(), Property.created_at.desc())
     else:
         query = query.order_by(Property.created_at.desc())
 
@@ -251,6 +260,8 @@ def get_properties():
             "price": float(p.price) if p.price is not None else None, "price_text": p.price_text or "*", "location": p.location,
             "is_featured": p.is_featured, "is_verified": p.is_verified,
             "property_type": p.property_type, "transaction_type": p.transaction_type,
+            "latitude": float(p.latitude) if p.latitude is not None else None,
+            "longitude": float(p.longitude) if p.longitude is not None else None,
             "images": [img.image_url for img in p.images],
             "created_at": p.created_at.isoformat() if p.created_at else None,
         })
@@ -274,6 +285,8 @@ def get_property_detail(id):
         "id": prop.id, "listing_id": prop.listing_id, "title": prop.title,
         "description": prop.description, "price": float(prop.price) if prop.price is not None else None,
         "price_text": prop.price_text or "*", "location": prop.location, "transaction_type": prop.transaction_type,
+        "latitude": float(prop.latitude) if prop.latitude is not None else None,
+        "longitude": float(prop.longitude) if prop.longitude is not None else None,
         "property_type": prop.property_type, "is_featured": prop.is_featured,
         "is_verified": prop.is_verified, "images": [img.image_url for img in prop.images],
         "created_at": prop.created_at.isoformat() if prop.created_at else None,
@@ -294,6 +307,9 @@ def property_contact(id):
     email = data.get("email", "").strip()
     if not name or not mobile:
         return jsonify({"error": "Name and mobile are required"}), 400
+    from utils.consent import consent_given, record_consent
+    if not consent_given():
+        return jsonify({"error": "Please accept the privacy notice to continue"}), 400
 
     prop = Property.query.get(id)
     if not prop:
@@ -302,8 +318,11 @@ def property_contact(id):
         return jsonify({"error": "Property not found"}), 404
 
     lead = Lead(name=name, email=email, mobile=mobile, source="connect", property_id=id)
+    from utils.sla import apply_sla
+    apply_sla(lead)
     db.session.add(lead)
     db.session.commit()
+    record_consent("enquiry", "visitor", email=email, subject_id=lead.id)
 
     # Owner-first routing: enquiries on owner-posted properties go directly to
     # the owner and stay unassigned so executives do not double-contact the visitor.

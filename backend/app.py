@@ -29,13 +29,16 @@ def create_app():
     jwt = JWTManager(app)
 
     @jwt.token_in_blocklist_loader
-    def _auth_namespace_guard(jwt_header, jwt_payload):
-        """Keep owner tokens and admin tokens in separate namespaces.
+    def _token_revocation_and_namespace_guard(jwt_header, jwt_payload):
+        # 1. Revoked tokens (logout / forced sign-out) are always rejected.
+        from utils.auth import is_token_revoked
+        if is_token_revoked(jwt_payload.get("jti")):
+            return True
 
-        Both use the same access_token_cookie, so without this guard an
-        owner with id N could impersonate the admin with id N on
-        /api/admin/* endpoints (and vice versa).
-        """
+        # 2. Keep owner tokens and admin tokens in separate namespaces.
+        # Both use the same access_token_cookie, so without this guard an
+        # owner with id N could impersonate the admin with id N on
+        # /api/admin/* endpoints (and vice versa).
         sub = str(jwt_payload.get("sub", ""))
         path = request.path
         if path.startswith("/api/admin") and not sub.isdigit():
@@ -48,14 +51,27 @@ def create_app():
 
     with app.app_context():
         _import_all_models()
-        db.create_all()
-        _bootstrap_schema()
+        # Schema is owned by Alembic. In development we still create any
+        # missing tables for convenience; production must run
+        # `alembic upgrade head` as a deploy step.
+        if os.getenv("FLASK_ENV", "development") != "production":
+            # GIN trigram indexes rely on the pg_trgm extension (created by
+            # Alembic in production; ensure it exists before create_all here).
+            try:
+                from sqlalchemy import text
+                if db.engine.dialect.name == "postgresql":
+                    db.session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                    db.session.commit()
+            except Exception as exc:  # pragma: no cover - best effort
+                logger.warning("pg_trgm extension setup skipped: %s", exc)
+            db.create_all()
         _seed_rbac()
         _seed_defaults()
 
     _register_blueprints(app)
     _register_error_handlers(app)
     _register_request_logging(app)
+    _register_security_headers(app)
 
     @app.route("/")
     def home():
@@ -103,6 +119,8 @@ def _register_blueprints(app):
     from routes.gallery_routes import gallery_bp
     from routes.team_routes import team_bp
     from routes.owner_routes import owner_bp
+    from routes.cron_routes import cron_bp
+    from routes.saved_search_routes import saved_search_bp
 
     app.register_blueprint(public_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -116,8 +134,10 @@ def _register_blueprints(app):
     app.register_blueprint(faq_bp, url_prefix="/api")
     app.register_blueprint(types_bp, url_prefix="/api")
     app.register_blueprint(gallery_bp, url_prefix="/api")
+    app.register_blueprint(cron_bp, url_prefix="/api/cron")
     app.register_blueprint(team_bp, url_prefix="/api")
     app.register_blueprint(owner_bp, url_prefix="/api/owner")
+    app.register_blueprint(saved_search_bp, url_prefix="/api")
 
 
 def _register_error_handlers(app):
@@ -158,6 +178,31 @@ def _register_error_handlers(app):
         return jsonify({"error": "Internal server error"}), 500
 
 
+def _register_security_headers(app):
+    """Attach hardened HTTP security headers to every response.
+
+    The API only serves JSON, plain text and image files, never HTML
+    documents, so a restrictive CSP is safe here.
+    """
+    is_production = os.getenv("FLASK_ENV", "development") == "production"
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'none'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'",
+        )
+        if is_production:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
 def _register_request_logging(app):
     @app.before_request
     def before():
@@ -169,39 +214,6 @@ def _register_request_logging(app):
             duration = round((time.time() - request._start_time) * 1000, 2)
             logger.info(f"{request.method} {request.path} -> {response.status_code} ({duration}ms)")
         return response
-
-
-def _bootstrap_schema():
-    """Idempotent PostgreSQL schema sync.
-
-    db.create_all() creates missing tables but does NOT add new columns to
-    existing tables, so any column added to the models must also be added here.
-    """
-    from sqlalchemy import text
-
-    def _safe_execute(sql):
-        try:
-            db.session.execute(text(sql))
-        except Exception:
-            db.session.rollback()
-        else:
-            db.session.commit()
-
-    # Price display variants column (e.g. "*", "onwards", "Connect for Price")
-    _safe_execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS price_text VARCHAR(50) DEFAULT '*'")
-    # Property owner account linkage (owners table created by db.create_all above)
-    _safe_execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES owners(id)")
-    _safe_execute("CREATE INDEX IF NOT EXISTS ix_properties_owner_id ON properties(owner_id)")
-    # Staff role linkage (roles table created by db.create_all above)
-    _safe_execute("ALTER TABLE admins ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES roles(id)")
-    # Owner password reset tokens
-    _safe_execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255)")
-    _safe_execute("ALTER TABLE owners ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP")
-    # Services display order (backfill existing rows from their id)
-    _safe_execute("ALTER TABLE services ADD COLUMN IF NOT EXISTS sort_order INTEGER")
-    _safe_execute("UPDATE services SET sort_order = id WHERE sort_order IS NULL")
-    # Convert floor / total-floor / area fields to free-text
-    _safe_execute("UPDATE property_type_fields SET field_type='text' WHERE field_key IN ('floor_level','total_floors','area_size')")
 
 
 def _seed_rbac():

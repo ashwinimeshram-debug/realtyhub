@@ -14,6 +14,8 @@ class Property(db.Model):
     price = db.Column(db.Numeric(12, 2))
     price_text = db.Column(db.String(50), default="*")
     location = db.Column(db.String(255), nullable=False)
+    latitude = db.Column(db.Numeric(9, 6), nullable=True)
+    longitude = db.Column(db.Numeric(9, 6), nullable=True)
     status = db.Column(db.String(20), default="pending")
     is_active = db.Column(db.Boolean, default=False)
     is_featured = db.Column(db.Boolean, default=False)
@@ -43,6 +45,15 @@ class Property(db.Model):
         db.Index("idx_property_created", "created_at"),
         db.Index("idx_property_uploaded_by", "uploaded_by"),
         db.Index("idx_property_price", "price"),
+        db.Index("idx_property_geo", "latitude", "longitude"),
+        db.Index(
+            "idx_property_title_trgm", "title",
+            postgresql_using="gin", postgresql_ops={"title": "gin_trgm_ops"},
+        ),
+        db.Index(
+            "idx_property_location_trgm", "location",
+            postgresql_using="gin", postgresql_ops={"location": "gin_trgm_ops"},
+        ),
     )
 
 
@@ -155,6 +166,67 @@ class Owner(db.Model):
     reset_token_expiry = db.Column(db.DateTime, nullable=True)
 
 
+class SavedSearch(db.Model):
+    __tablename__ = "saved_searches"
+
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey("owners.id", ondelete="CASCADE"), nullable=True, index=True)
+    email = db.Column(db.String(150), nullable=True, index=True)
+    phone = db.Column(db.String(20), nullable=True)
+    name = db.Column(db.String(120), nullable=True)
+    params = db.Column(db.Text, nullable=False, default="{}")
+    notify = db.Column(db.Boolean, default=True)
+    is_active = db.Column(db.Boolean, default=True)
+    unsubscribe_token = db.Column(db.String(64), unique=True, index=True)
+    last_notified_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    owner = db.relationship("Owner", backref="saved_searches", lazy="joined")
+
+    __table_args__ = (
+        db.Index("idx_saved_search_active", "is_active", "notify"),
+    )
+
+
+class TokenBlocklist(db.Model):
+    """Revoked JWTs (logout / forced sign-out). Checked on every request."""
+
+    __tablename__ = "token_blocklist"
+
+    id = db.Column(db.Integer, primary_key=True)
+    jti = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    token_type = db.Column(db.String(20), default="access")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index("idx_blocklist_created", "created_at"),
+    )
+
+
+class ConsentRecord(db.Model):
+    """DPDP consent audit trail: who consented to what, when, and from where."""
+
+    __tablename__ = "consent_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    subject_type = db.Column(db.String(20), nullable=False)  # visitor | owner
+    subject_id = db.Column(db.Integer, nullable=True)
+    email = db.Column(db.String(150), nullable=True)
+    purpose = db.Column(db.String(50), nullable=False)  # enquiry | contact | registration
+    version = db.Column(db.String(20), nullable=False)
+    granted = db.Column(db.Boolean, default=True)
+    ip = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index("idx_consent_email", "email"),
+        db.Index("idx_consent_subject", "subject_type", "subject_id"),
+        db.Index("idx_consent_created", "created_at"),
+    )
+
+
 class Lead(db.Model):
     __tablename__ = "leads"
 
@@ -172,6 +244,9 @@ class Lead(db.Model):
     follow_up_at = db.Column(db.DateTime, nullable=True)
     archived_at = db.Column(db.DateTime, nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    first_response_at = db.Column(db.DateTime, nullable=True)
+    sla_due_at = db.Column(db.DateTime, nullable=True)
+    sla_reminded_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -186,6 +261,7 @@ class Lead(db.Model):
         db.Index("idx_lead_created", "created_at"),
         db.Index("idx_lead_stage", "stage"),
         db.Index("idx_lead_archived", "archived_at"),
+        db.Index("idx_lead_sla_due", "sla_due_at"),
     )
 
 

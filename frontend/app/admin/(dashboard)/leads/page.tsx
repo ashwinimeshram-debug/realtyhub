@@ -77,6 +77,9 @@ interface Lead {
   created_at: string;
   assigned_to: number | null;
   assigned_name: string | null;
+  first_response_at: string | null;
+  sla_due_at: string | null;
+  sla_overdue: boolean;
 }
 
 interface LeadDetail extends Lead {
@@ -103,6 +106,21 @@ function followUpBadge(dateStr: string | null): { label: string; bg: string; tex
   if (diff < 0) return { label: `Overdue: ${dateStr}`, bg: "bg-red-100", text: "text-red-700", border: "border-red-300" };
   if (diff < day) return { label: `Today: ${dateStr}`, bg: "bg-amber-100", text: "text-amber-700", border: "border-amber-300" };
   return { label: `Upcoming: ${dateStr}`, bg: "bg-blue-100", text: "text-blue-700", border: "border-blue-200" };
+}
+
+function slaBadgeFor(lead: Pick<Lead, "first_response_at" | "sla_due_at" | "sla_overdue" | "created_at">): { label: string; className: string } | null {
+  if (!lead.sla_due_at) return null;
+  if (lead.first_response_at) {
+    const start = new Date(lead.created_at).getTime();
+    const responded = new Date(lead.first_response_at).getTime();
+    const mins = Math.max(0, Math.round((responded - start) / 60000));
+    return { label: `Replied in ${mins}m`, className: "bg-green-50 text-green-700 border-green-200" };
+  }
+  if (lead.sla_overdue) {
+    const mins = Math.max(0, Math.round((Date.now() - new Date(lead.sla_due_at).getTime()) / 60000));
+    return { label: `SLA overdue ${mins}m`, className: "bg-red-50 text-red-700 border-red-200" };
+  }
+  return { label: "Awaiting reply", className: "bg-amber-50 text-amber-700 border-amber-200" };
 }
 
 export default function LeadsPage() {
@@ -582,6 +600,7 @@ function PipelineCard({ lead, onClick, onClaim }: { lead: Lead; onClick: () => v
   };
 
   const badge = followUpBadge(lead.follow_up_date);
+  const slaBadge = slaBadgeFor(lead);
 
   return (
     <div
@@ -610,6 +629,11 @@ function PipelineCard({ lead, onClick, onClaim }: { lead: Lead; onClick: () => v
         </div>
       )}
       <div className="flex items-center gap-2 mt-2 flex-wrap">
+        {slaBadge && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${slaBadge.className}`} title="First-response SLA">
+            {slaBadge.label}
+          </span>
+        )}
         {lead.follow_up_date && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badge.bg} ${badge.text}`}>
             {new Date(lead.follow_up_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
@@ -944,6 +968,18 @@ function LeadDetailModal({
               <p className="text-xs text-gray-400">Status</p>
               <p className="text-sm font-medium">{lead.lead_status || "Active"}</p>
             </div>
+            {(() => {
+              const sla = slaBadgeFor(lead);
+              if (!sla) return null;
+              return (
+                <div>
+                  <p className="text-xs text-gray-400">First Response</p>
+                  <span className={`inline-block text-xs px-2 py-0.5 rounded font-medium border ${sla.className}`}>
+                    {sla.label}
+                  </span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Not Interested / Reopen buttons */}

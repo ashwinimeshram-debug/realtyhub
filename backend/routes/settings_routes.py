@@ -35,6 +35,17 @@ def is_setting_enabled(key, default=False):
     return str(value).strip().lower() in ("true", "1", "yes", "on")
 
 
+def get_setting_int(key, default=0):
+    """Read an integer setting safely, falling back to default on bad/missing values."""
+    value = get_all_settings().get(key)
+    if value is None or str(value).strip() == "":
+        return default
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 @settings_bp.route("/settings", methods=["GET"])
 def public_get_settings():
     PUBLIC_PREFIXES = ("site_", "section_", "hero_", "page_", "contact_", "social_", "share_", "seo_", "rera_")
@@ -45,18 +56,28 @@ def public_get_settings():
     return resp
 
 
+SECRET_SETTING_KEYS = {"mail_password", "whatsapp_access_token", "twilio_auth_token"}
+
+
 @settings_bp.route("/admin/settings", methods=["GET"])
 @jwt_required()
 def admin_get_settings():
     data = dict(get_all_settings())
-    if "mail_password" in data:
-        data["mail_password"] = ""
+    for key in SECRET_SETTING_KEYS:
+        if key in data:
+            data[key] = ""
     return jsonify(data)
 
 
 MAIL_SETTING_KEYS = {
     "mail_enabled", "mail_server", "mail_port", "mail_username",
     "mail_password", "mail_sender", "mail_use_tls",
+}
+
+WHATSAPP_SETTING_KEYS = {
+    "whatsapp_enabled", "whatsapp_provider", "whatsapp_phone_number_id",
+    "whatsapp_access_token", "whatsapp_from", "whatsapp_api_version",
+    "twilio_account_sid", "twilio_auth_token", "twilio_whatsapp_from",
 }
 
 
@@ -76,17 +97,18 @@ def admin_update_settings():
         "section_featured_visible", "section_faq_visible", "section_locations_visible",
         "section_new_visible", "section_new_count",
         "auto_assign_leads", "auto_approve_properties", "allow_public_post",
+        "data_retention_days",
         "share_caption_template",
         "seo_google_verification", "seo_bing_verification", "seo_default_description",
         "rera_license",
     }
-    ACCEPTED = KNOWN_SETTINGS | MAIL_SETTING_KEYS
+    ACCEPTED = KNOWN_SETTINGS | MAIL_SETTING_KEYS | WHATSAPP_SETTING_KEYS
     SECTION_HEADER_RE = _re.compile(r"^section_[a-z0-9_]+_(title|subtitle|align)$")
     for key in data:
         if key not in ACCEPTED and not SECTION_HEADER_RE.match(key):
             continue
         val = data[key]
-        if key == "mail_password":
+        if key in SECRET_SETTING_KEYS:
             if val is None or not str(val).strip():
                 continue
             val = str(val)

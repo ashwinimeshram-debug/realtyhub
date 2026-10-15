@@ -14,6 +14,19 @@ const CURRENCY = "INR";
 const REGION = "Maharashtra";
 const COUNTRY = "IN";
 
+/** Prefer a property's exact coordinates; fall back to its locality centroid. */
+export function propertyGeo(property: SeoProperty) {
+  if (
+    typeof property.latitude === "number" &&
+    typeof property.longitude === "number" &&
+    Number.isFinite(property.latitude) &&
+    Number.isFinite(property.longitude)
+  ) {
+    return { latitude: property.latitude, longitude: property.longitude };
+  }
+  return localityGeo(property.location);
+}
+
 export function absoluteUrl(path: string, siteUrl: string = SITE_URL): string {
   if (/^https?:\/\//i.test(path)) return path;
   return `${siteUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
@@ -240,8 +253,8 @@ export function buildListingGraph(
     address: postalAddress(property.location),
     geo: {
       "@type": "GeoCoordinates",
-      latitude: localityGeo(property.location).latitude,
-      longitude: localityGeo(property.location).longitude,
+      latitude: propertyGeo(property).latitude,
+      longitude: propertyGeo(property).longitude,
     },
   };
   if (floorSize) residence.floorSize = floorSize;
@@ -261,8 +274,8 @@ export function buildListingGraph(
     address: postalAddress(property.location),
     geo: {
       "@type": "GeoCoordinates",
-      latitude: localityGeo(property.location).latitude,
-      longitude: localityGeo(property.location).longitude,
+      latitude: propertyGeo(property).latitude,
+      longitude: propertyGeo(property).longitude,
     },
     inLanguage: "en-IN",
   };

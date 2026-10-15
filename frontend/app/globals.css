@@ -351,27 +351,6 @@ select.form-input {
   background-color: var(--primary-light);
 }
 
-/* ─── LANGUAGE TOGGLE ─── */
-.lang-btn {
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 0.7rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 150ms ease;
-  border: 1px solid transparent;
-  background: var(--bg-page);
-  color: var(--text-muted);
-}
-.lang-btn:hover {
-  background: var(--border-light);
-}
-.lang-btn-active {
-  background: var(--primary);
-  color: #ffffff;
-  border-color: var(--primary);
-}
-
 @keyframes kenBurnsSlow {
   0% { transform: scale(1); }
   50% { transform: scale(1.08); }

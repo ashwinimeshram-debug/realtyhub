@@ -34,6 +34,10 @@ interface Overview {
   visits_today: number;
   visits_this_week: number;
   visits_this_month: number;
+  visits_period: number;
+  unique_visitors_period: number;
+  leads_period: number;
+  contactus_period: number;
   top_pages: { page: string; visits: number }[];
   daily_visits: { date: string; visits: number }[];
   total_contacts: number;
@@ -75,7 +79,7 @@ export default function AnalyticsPage() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      API.get("/admin/analytics").catch(() => ({ data: null })),
+      API.get(`/admin/analytics?days=${days}`).catch(() => ({ data: null })),
       API.get(`/admin/analytics/traffic?days=${days}`).catch(() => ({ data: { sources: [] } })),
       API.get(`/admin/analytics/search-insights?days=${days}`).catch(() => ({ data: null })),
       API.get(`/admin/analytics/banner-performance?days=${days}`).catch(() => ({ data: null })),
@@ -94,6 +98,12 @@ export default function AnalyticsPage() {
   const maxSearchBar = search
     ? Math.max(...search.daily_searches.map((d) => d.count), 1)
     : 1;
+
+  const dailyLabelEvery = overview
+    ? Math.max(1, Math.ceil(overview.daily_visits.length / 14))
+    : 1;
+
+  const trafficTotal = traffic.reduce((a, b) => a + b.visits, 0);
 
   if (loading) {
     return (
@@ -115,7 +125,7 @@ export default function AnalyticsPage() {
       {/* Period selector */}
       <div className="flex items-center gap-2">
         <span className="text-sm text-gray-500">Period:</span>
-        {([7, 30, 90] as const).map((d) => (
+        {([1, 7, 30, 90] as const).map((d) => (
           <button
             key={d}
             onClick={() => setDays(d)}
@@ -132,24 +142,31 @@ export default function AnalyticsPage() {
       {overview && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-            <Card label="Total Visits" value={overview.total_visits} color="blue" />
-            <Card label="Unique Visitors" value={overview.unique_visitors} color="purple" />
-            <Card label="Visits Today" value={overview.visits_today} color="green" />
-            <Card label="This Month" value={overview.visits_this_month} color="amber" />
+            <Card label={`Visits (${days}d)`} value={overview.visits_period} color="blue" />
+            <Card label={`Unique Visitors (${days}d)`} value={overview.unique_visitors_period} color="purple" />
+            <Card label={`Leads (${days}d)`} value={overview.leads_period} color="amber" />
+            <Card label={`Contact Us (${days}d)`} value={overview.contactus_period} color="green" />
           </div>
 
           {/* Visits Chart */}
           <div className="bg-white rounded-xl shadow p-4 md:p-6">
-            <h2 className="text-base md:text-lg font-semibold mb-4">Visits — Last 14 Days</h2>
+            <h2 className="text-base md:text-lg font-semibold mb-4">
+              Visits — {days === 1 ? "Today" : `Last ${days} Days`}
+            </h2>
             <div className="overflow-x-auto">
               <div className="flex items-end gap-1.5 min-w-[560px]" style={{ height: 160 }}>
-                {overview.daily_visits.map((d) => {
+                {overview.daily_visits.map((d, i) => {
                   const h = maxBar > 0 ? (d.visits / maxBar) * 140 : 0;
+                  const showLabel = i % dailyLabelEvery === 0 || i === overview.daily_visits.length - 1;
                   return (
                     <div key={d.date} className="flex-1 flex flex-col items-center">
-                      <span className="text-xs text-gray-500 mb-1">{d.visits}</span>
-                      <div className="w-full bg-blue-500 rounded-t" style={{ height: Math.max(h, 2) }} />
-                      <span className="text-[10px] text-gray-400 mt-1 whitespace-nowrap">{d.date.slice(5)}</span>
+                      {overview.daily_visits.length <= 31 && (
+                        <span className="text-xs text-gray-500 mb-1">{d.visits}</span>
+                      )}
+                      <div className="w-full bg-blue-500 rounded-t" style={{ height: Math.max(h, 2) }} title={`${d.date}: ${d.visits}`} />
+                      {showLabel && (
+                        <span className="text-[10px] text-gray-400 mt-1 whitespace-nowrap">{d.date.slice(5)}</span>
+                      )}
                     </div>
                   );
                 })}
@@ -205,7 +222,7 @@ export default function AnalyticsPage() {
 
       {/* ═══════════ TRAFFIC SOURCES ═══════════ */}
       <div className="bg-white rounded-xl shadow p-4 md:p-6">
-        <h2 className="text-base md:text-lg font-semibold mb-4">Traffic Sources</h2>
+        <h2 className="text-base md:text-lg font-semibold mb-4">Traffic Sources ({days}d)</h2>
         {traffic.length === 0 ? (
           <p className="text-gray-400 text-sm">No traffic data yet. Sources will appear as visitors arrive via Google, Facebook, Instagram, etc.</p>
         ) : (
@@ -225,8 +242,7 @@ export default function AnalyticsPage() {
             </div>
             <div className="space-y-2">
               {traffic.map((s) => {
-                const total = traffic.reduce((a, b) => a + b.visits, 0);
-                const pct = total > 0 ? (s.visits / total) * 100 : 0;
+                const pct = trafficTotal > 0 ? (s.visits / trafficTotal) * 100 : 0;
                 return (
                   <div key={s.source} className="flex items-center gap-3">
                     <span className="w-20 text-xs text-gray-500 capitalize truncate">{s.source}</span>

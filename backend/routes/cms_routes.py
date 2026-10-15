@@ -7,7 +7,8 @@ from werkzeug.utils import secure_filename
 from datetime import datetime, timezone
 import time
 import os
-from utils.supabase_storage import upload_file as storage_upload, delete_file as storage_delete, list_files as storage_list
+from utils.images import process_image_upload
+from utils.supabase_storage import list_files as storage_list
 
 cms_bp = Blueprint("cms", __name__)
 
@@ -402,5 +403,5 @@ def upload_media():
     safe_folder = secure_filename(folder) if folder else ""
     filename = f"{time.time_ns()}_{secure_filename(file.filename)}"
     path = f"{safe_folder}/{filename}" if safe_folder else filename
-    url_path = storage_upload(file, path)
+    url_path = process_image_upload(file, path)
     return jsonify({"url": url_path})

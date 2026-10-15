@@ -30,6 +30,8 @@ export interface SeoProperty {
   price?: number | null;
   price_text?: string | null;
   location: string;
+  latitude?: number | null;
+  longitude?: number | null;
   transaction_type?: string | null;
   property_type?: string | null;
   is_featured?: boolean;

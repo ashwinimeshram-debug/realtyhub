@@ -5,6 +5,8 @@ import LocationChips from "@/components/LocationChips";
 import Footer from "@/components/Footer";
 import ThemeStyle from "@/components/ThemeStyle";
 import JsonLd from "@/components/seo/JsonLd";
+import GA4 from "@/components/GA4";
+import CookieConsentBanner from "@/components/CookieConsentBanner";
 import { ToastProvider } from "@/components/Toast";
 import { SettingsProvider } from "@/hooks/useSettings";
 import { OwnerAuthProvider } from "@/hooks/useOwnerAuth";
@@ -80,6 +82,7 @@ export default async function RootLayout({
     <html lang="en">
       <body className="flex flex-col min-h-screen">
         <JsonLd data={buildSiteGraph(site)} />
+        <GA4 />
         <ThemeStyle />
         <SettingsProvider>
         <OwnerAuthProvider>
@@ -98,6 +101,8 @@ export default async function RootLayout({
 
         {/* Footer always at bottom */}
         <Footer />
+
+        <CookieConsentBanner />
 
         </ConfirmProvider>
         </ToastProvider>

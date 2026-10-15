@@ -85,7 +85,15 @@ export default async function PropertyPage({ params }: PropertyParams) {
         title={`Questions about this ${property.property_type || "property"}`}
         subtitle={`Prices, location and contact details for ${property.location}`}
       />
-      <LocalityFacts locationName={property.location} locality={getLocality(property.location)} />
+      <LocalityFacts
+        locationName={property.location}
+        locality={getLocality(property.location)}
+        geo={
+          typeof property.latitude === "number" && typeof property.longitude === "number"
+            ? { latitude: property.latitude, longitude: property.longitude }
+            : null
+        }
+      />
     </>
   );
 }

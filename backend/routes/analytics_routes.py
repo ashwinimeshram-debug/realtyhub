@@ -10,6 +10,15 @@ from sqlalchemy import func, text
 analytics_bp = Blueprint("analytics", __name__)
 
 
+def _period_days(default=30):
+    """Selected period in days, clamped to 1..365 (safe against bad input)."""
+    try:
+        days = int(request.args.get("days", default))
+    except (TypeError, ValueError):
+        days = default
+    return max(1, min(days, 365))
+
+
 def _classify_referrer(referrer: str) -> str:
     if not referrer:
         return "direct"
@@ -104,6 +113,7 @@ def track_banner_click():
 @jwt_required()
 def get_analytics():
     now = datetime.utcnow()
+    days = _period_days(30)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=now.weekday())
     month_start = today_start.replace(day=1)
@@ -119,15 +129,22 @@ def get_analytics():
     ).group_by(PageVisit.page_url).order_by(func.count(PageVisit.id).desc()).limit(10).all()
 
     daily = []
-    day_14_start = (now - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     raw_daily = db.session.query(
         func.date(PageVisit.created_at).label("day"),
         func.count(PageVisit.id).label("visits")
-    ).filter(PageVisit.created_at >= day_14_start).group_by(func.date(PageVisit.created_at)).all()
+    ).filter(PageVisit.created_at >= day_start).group_by(func.date(PageVisit.created_at)).all()
     daily_map = {str(row.day): row.visits for row in raw_daily}
-    for i in range(13, -1, -1):
+    for i in range(days - 1, -1, -1):
         day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
         daily.append({"date": day, "visits": daily_map.get(day, 0)})
+
+    visits_period = PageVisit.query.filter(PageVisit.created_at >= day_start).count()
+    unique_period = db.session.query(
+        func.count(func.distinct(PageVisit.visitor_ip))
+    ).filter(PageVisit.created_at >= day_start).scalar()
+    leads_period = Lead.query.filter(Lead.created_at >= day_start).count()
+    contactus_period = Contactus.query.filter(Contactus.created_at >= day_start).count()
 
     total_contacts = Lead.query.count()
     contacts_week = Lead.query.filter(Lead.created_at >= week_start).count()
@@ -143,6 +160,9 @@ def get_analytics():
         "daily_visits": daily,
         "total_contacts": total_contacts, "contacts_this_week": contacts_week, "contacts_this_month": contacts_month,
         "total_contactus": total_contactus, "contactus_this_week": contactus_week, "contactus_this_month": contactus_month,
+        "visits_period": visits_period, "unique_visitors_period": unique_period,
+        "leads_period": leads_period, "contactus_period": contactus_period,
+        "days": days,
     })
 
 
@@ -150,33 +170,31 @@ def get_analytics():
 @jwt_required()
 def get_traffic_sources():
     now = datetime.utcnow()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    days = _period_days(30)
+    since = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     raw = db.session.query(
-        func.count(PageVisit.id).label("visits"),
         PageVisit.utm_source,
+        PageVisit.referrer,
+        func.count(PageVisit.id).label("visits"),
         func.count(func.distinct(PageVisit.visitor_ip)).label("unique_visitors"),
-    ).filter(PageVisit.created_at >= month_start).group_by(PageVisit.utm_source).all()
+    ).filter(PageVisit.created_at >= since).group_by(
+        PageVisit.utm_source, PageVisit.referrer
+    ).all()
 
-    results = []
+    # A visit with a utm_source is attributed to it, otherwise fall back to the
+    # referrer domain (so organic Google/Facebook traffic isn't lumped into
+    # "direct").
+    agg = {}
     for row in raw:
-        source = row.utm_source or _classify_referrer(None)
-        results.append({
-            "source": source,
-            "visits": row.visits,
-            "unique_visitors": row.unique_visitors,
-        })
+        source = row.utm_source or _classify_referrer(row.referrer)
+        entry = agg.setdefault(source, {"visits": 0, "unique_visitors": 0})
+        entry["visits"] += row.visits
+        entry["unique_visitors"] += row.unique_visitors
 
-    if not any(r["source"] == "direct" for r in results):
-        direct_count = PageVisit.query.filter(
-            PageVisit.created_at >= month_start,
-            PageVisit.utm_source.is_(None),
-        ).count()
-        if direct_count > 0:
-            results.append({"source": "direct", "visits": direct_count, "unique_visitors": 0})
-
+    results = [{"source": source, **counts} for source, counts in agg.items()]
     results.sort(key=lambda x: x["visits"], reverse=True)
-    return jsonify({"sources": results, "period": "month"})
+    return jsonify({"sources": results, "days": days})
 
 
 @analytics_bp.route("/admin/analytics/traffic/detailed", methods=["GET"])
@@ -234,8 +252,8 @@ def get_traffic_detailed():
 @jwt_required()
 def get_search_insights():
     now = datetime.utcnow()
-    days = min(int(request.args.get("days", 30)), 365)
-    since = now - timedelta(days=days)
+    days = _period_days(30)
+    since = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     top_locations = db.session.query(
         SearchLog.location, func.count(SearchLog.id).label("count")
@@ -275,10 +293,16 @@ def get_search_insights():
 
     budget_sorted = [{"range": k, "count": v} for k, v in sorted(budget_summary.items(), key=lambda x: -x[1])]
 
-    daily_searches = db.session.query(
+    raw_daily = db.session.query(
         func.date(SearchLog.created_at).label("day"),
         func.count(SearchLog.id).label("count")
     ).filter(SearchLog.created_at >= since).group_by(func.date(SearchLog.created_at)).all()
+    daily_map = {str(r.day): r.count for r in raw_daily}
+    daily_searches = [
+        {"date": (now - timedelta(days=i)).strftime("%Y-%m-%d"),
+         "count": daily_map.get((now - timedelta(days=i)).strftime("%Y-%m-%d"), 0)}
+        for i in range(days - 1, -1, -1)
+    ]
 
     total_searches = SearchLog.query.filter(SearchLog.created_at >= since).count()
 
@@ -287,7 +311,7 @@ def get_search_insights():
         "top_locations": [{"location": r[0], "count": r[1]} for r in top_locations],
         "top_property_types": [{"type": r[0], "count": r[1]} for r in top_types],
         "budget_ranges": budget_sorted,
-        "daily_searches": [{"date": str(r[0]), "count": r[1]} for r in daily_searches],
+        "daily_searches": daily_searches,
         "days": days,
     })
 
@@ -296,8 +320,8 @@ def get_search_insights():
 @jwt_required()
 def get_banner_performance():
     now = datetime.utcnow()
-    days = min(int(request.args.get("days", 30)), 365)
-    since = now - timedelta(days=days)
+    days = _period_days(30)
+    since = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     total_clicks = BannerClick.query.filter(BannerClick.created_at >= since).count()
 
@@ -310,15 +334,21 @@ def get_banner_performance():
         BannerClick.slide_id, BannerClick.slide_title
     ).order_by(func.count(BannerClick.id).desc()).all()
 
-    daily = db.session.query(
+    raw_daily = db.session.query(
         func.date(BannerClick.created_at).label("day"),
         func.count(BannerClick.id).label("clicks")
     ).filter(BannerClick.created_at >= since).group_by(func.date(BannerClick.created_at)).all()
+    daily_map = {str(r.day): r.clicks for r in raw_daily}
+    daily_clicks = [
+        {"date": (now - timedelta(days=i)).strftime("%Y-%m-%d"),
+         "clicks": daily_map.get((now - timedelta(days=i)).strftime("%Y-%m-%d"), 0)}
+        for i in range(days - 1, -1, -1)
+    ]
 
     return jsonify({
         "total_clicks": total_clicks,
         "by_slide": [{"slide_id": r[0], "title": r[1], "clicks": r[2], "unique_clicks": r[3]} for r in by_slide],
-        "daily_clicks": [{"date": str(r[0]), "clicks": r[1]} for r in daily],
+        "daily_clicks": daily_clicks,
         "days": days,
     })
 

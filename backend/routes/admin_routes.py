@@ -18,7 +18,8 @@ from flask_jwt_extended import (
 )
 from extensions import limiter
 from utils.helpers import generate_listing_id, paginate
-from utils.supabase_storage import upload_file, delete_file
+from utils.supabase_storage import delete_file
+from utils.images import process_image_upload
 from utils.mailer import password_reset_email, send_email_async, submission_confirmed_email, submission_rejected_email
 from utils.permissions import has_permission, is_admin, current_admin, admin_permissions, PERMISSION_CATALOG, require_permission
 from routes.settings_routes import is_setting_enabled
@@ -93,6 +94,23 @@ def _hash_token(token):
 
 def _check_token(token, hashed):
     return bcrypt.checkpw(token.encode("utf-8"), hashed.encode("utf-8"))
+
+
+def _parse_coord(value, min_v, max_v):
+    """Parse a latitude/longitude value; return None when missing/invalid."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            return None
+    try:
+        num = float(value)
+    except (ValueError, TypeError):
+        return None
+    if num < min_v or num > max_v:
+        return None
+    return num
 
 
 def _log_activity(action, module=None, target=None):
@@ -199,6 +217,8 @@ def check_auth():
 @admin_bp.route("/logout", methods=["POST"])
 @jwt_required()
 def logout():
+    from utils.auth import revoke_current_token
+    revoke_current_token()
     response = jsonify({"message": "Logged out"})
     unset_jwt_cookies(response)
     return response
@@ -337,6 +357,8 @@ def get_property(id):
         "price": float(prop.price) if prop.price is not None else None,
         "price_text": prop.price_text or "*",
         "location": prop.location,
+        "latitude": float(prop.latitude) if prop.latitude is not None else None,
+        "longitude": float(prop.longitude) if prop.longitude is not None else None,
         "status": prop.status,
         "is_active": prop.is_active,
         "is_featured": prop.is_featured,
@@ -411,6 +433,8 @@ def create_property():
         price=price_val,
         price_text=price_text,
         location=data.get("location", ""),
+        latitude=_parse_coord(data.get("latitude"), -90, 90),
+        longitude=_parse_coord(data.get("longitude"), -180, 180),
         transaction_type=data.get("transaction_type", "sell"),
         property_type=data.get("property_type", "flat"),
         status="approved" if approved_now else "pending",
@@ -470,7 +494,7 @@ def create_property():
             if file and file.filename:
                 filename = f"{time.time_ns()}_{secure_filename(file.filename)}"
                 path = f"{safe_folder}/{filename}" if safe_folder else filename
-                url_path = upload_file(file, path)
+                url_path = process_image_upload(file, path)
                 _saved_paths.append(path)
                 db.session.add(PropertyImage(property_id=prop.id, image_url=url_path))
         db.session.commit()
@@ -513,6 +537,11 @@ def update_property(id):
     prop.title = data.get("title", prop.title)
     prop.description = data.get("description", prop.description)
     prop.location = data.get("location", prop.location)
+
+    if "latitude" in data:
+        prop.latitude = _parse_coord(data.get("latitude"), -90, 90)
+    if "longitude" in data:
+        prop.longitude = _parse_coord(data.get("longitude"), -180, 180)
 
     if "transaction_type" in data:
         val = data["transaction_type"]
@@ -647,7 +676,7 @@ def update_property(id):
                 if file and file.filename:
                     filename = f"{time.time_ns()}_{secure_filename(file.filename)}"
                     path = f"{safe_folder}/{filename}" if safe_folder else filename
-                    url_path = upload_file(file, path)
+                    url_path = process_image_upload(file, path)
                     _saved_paths.append(path)
                     db.session.add(PropertyImage(property_id=id, image_url=url_path, order=start_order + i))
         except Exception:
@@ -865,7 +894,7 @@ def upload_image(property_id):
     safe_folder = prop.listing_id if prop else ""
     filename = f"{time.time_ns()}_{secure_filename(file.filename)}"
     path = f"{safe_folder}/{filename}" if safe_folder else filename
-    url_path = upload_file(file, path)
+    url_path = process_image_upload(file, path)
     new_image = PropertyImage(property_id=property_id, image_url=url_path)
     db.session.add(new_image)
     db.session.commit()
@@ -896,7 +925,7 @@ def upload_images(property_id):
             return jsonify({"error": f"File {i+1}: {err}"}), 400
         filename = f"{time.time_ns()}_{secure_filename(file.filename)}"
         path = f"{safe_folder}/{filename}" if safe_folder else filename
-        url_path = upload_file(file, path)
+        url_path = process_image_upload(file, path)
         new_image = PropertyImage(property_id=property_id, image_url=url_path, order=start_order + i)
         db.session.add(new_image)
         uploaded.append(url_path)

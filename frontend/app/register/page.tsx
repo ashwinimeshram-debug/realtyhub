@@ -4,9 +4,10 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 
 import API from "@/lib/api";
+import ConsentCheckbox from "@/components/ConsentCheckbox";
 
 export default function RegisterPage() {
-  const [form, setForm] = useState({ name: "", email: "", mobile: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", mobile: "", password: "", consent: false });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -14,6 +15,10 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!form.consent) {
+      setError("Please accept the privacy notice to continue.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -126,6 +131,13 @@ export default function RegisterPage() {
             )}
           </button>
         </div>
+
+        <ConsentCheckbox
+          checked={form.consent}
+          onChange={(v) => setForm({ ...form, consent: v })}
+          disabled={loading}
+          className="mt-2 mb-2"
+        />
 
         <button
           type="submit"
