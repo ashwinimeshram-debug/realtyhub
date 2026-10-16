@@ -2,11 +2,11 @@
 import logging
 
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models.models import ListingTransaction, Owner
 from utils import payments as payment_gateway
+from utils.owner_auth import load_owner_payload, owner_csrf_ok, get_owner_id
 from utils.listing_lifecycle import apply_paid_transaction
 
 logger = logging.getLogger("realtyhub.payments")
@@ -15,13 +15,8 @@ payments_bp = Blueprint("payments", __name__)
 
 
 def _owner_from_identity():
-    ident = str(get_jwt_identity() or "")
-    if not ident.startswith("owner:"):
-        return None
-    try:
-        return Owner.query.get(int(ident.split(":", 1)[1]))
-    except (ValueError, TypeError):
-        return None
+    owner_id = get_owner_id()
+    return Owner.query.get(owner_id) if owner_id else None
 
 
 def _extract_order_id(payload):
@@ -93,14 +88,14 @@ def payment_webhook(provider_name):
 
 
 @payments_bp.route("/mock/complete", methods=["POST"])
-@jwt_required()
 def mock_complete():
     """Development-only: simulate a successful payment (mock provider only)."""
     if payment_gateway.active_provider_name() != "mock":
         return jsonify({"error": "Mock payments are disabled"}), 403
 
+    payload = load_owner_payload()
     owner = _owner_from_identity()
-    if not owner:
+    if not owner or not payload or not owner_csrf_ok(payload):
         return jsonify({"error": "Owner login required"}), 401
 
     data = request.json or {}
@@ -117,7 +112,6 @@ def mock_complete():
 
 
 @payments_bp.route("/verify", methods=["GET"])
-@jwt_required()
 def verify_payment():
     owner = _owner_from_identity()
     if not owner:

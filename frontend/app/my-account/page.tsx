@@ -10,6 +10,7 @@ import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/hooks/useConfirm";
 import { propertyHref } from "@/lib/api";
 import OwnerLeadsBoard from "@/components/owner/OwnerLeadsBoard";
+import OwnerReports from "@/components/owner/OwnerReports";
 
 interface MyProperty {
   id: number;
@@ -129,7 +130,7 @@ export default function MyAccountPage() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
 
-  const [tab, setTab] = useState<"properties" | "leads" | "searches">("properties");
+  const [tab, setTab] = useState<"properties" | "leads" | "searches" | "reports">("properties");
   const [properties, setProperties] = useState<MyProperty[]>([]);
   const [searches, setSearches] = useState<SavedSearchRow[]>([]);
   const [searchesLoading, setSearchesLoading] = useState(false);
@@ -332,6 +333,13 @@ export default function MyAccountPage() {
           >
             Saved Searches {searches.length > 0 && `(${searches.length})`}
           </button>
+          <button
+            onClick={() => setTab("reports")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${tab === "reports" ? "text-white" : "text-gray-600 hover:bg-gray-50"}`}
+            style={tab === "reports" ? { backgroundColor: "var(--primary)" } : {}}
+          >
+            Reports
+          </button>
         </div>
 
         {tab === "properties" ? (
@@ -446,6 +454,8 @@ export default function MyAccountPage() {
           </>
         ) : tab === "leads" ? (
           <OwnerLeadsBoard />
+        ) : tab === "reports" ? (
+          <OwnerReports />
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-4">

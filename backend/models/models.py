@@ -502,7 +502,8 @@ class PropertyAuditLog(db.Model):
 class ListingTransaction(db.Model):
     """A payment/entitlement purchase for a listing or a featured boost.
 
-    purpose: listing (listing validity) | featured (featured placement add-on).
+    purpose: listing (listing validity) | featured (featured placement add-on)
+             | combo (listing validity + featured add-on in one payment).
     status:  pending | paid | failed | cancelled.
     method:  online (gateway) | manual (admin marked paid) | waived (comp).
     """
@@ -517,6 +518,8 @@ class ListingTransaction(db.Model):
     amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
     currency = db.Column(db.String(8), default="INR")
     duration_days = db.Column(db.Integer, nullable=False, default=0)
+    featured_days = db.Column(db.Integer, nullable=True, default=0)  # featured portion (combo)
+    discount_percent = db.Column(db.Numeric(5, 2), nullable=True, default=0)  # bundle discount applied
     provider = db.Column(db.String(20), default="mock")
     provider_order_id = db.Column(db.String(120), nullable=True, unique=True, index=True)
     provider_payment_id = db.Column(db.String(120), nullable=True)

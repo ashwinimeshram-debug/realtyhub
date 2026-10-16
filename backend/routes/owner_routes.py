@@ -13,10 +13,6 @@ from functools import wraps
 
 import bcrypt
 from flask import Blueprint, current_app, g, jsonify, request, send_file
-from flask_jwt_extended import (
-    create_access_token, get_jwt_identity, jwt_required, set_access_cookies,
-    unset_jwt_cookies,
-)
 from sqlalchemy import func
 from werkzeug.utils import secure_filename
 
@@ -31,11 +27,17 @@ from utils.consent import consent_given, record_consent
 from utils.mailer import frontend_url, get_site_name, password_reset_email, send_email_async, verification_email
 from utils.supabase_storage import delete_file
 from utils.images import process_image_upload
+from utils.auth import revoke_token
+from utils.owner_auth import (
+    issue_owner_session, clear_owner_session, load_owner_payload,
+    owner_csrf_ok, owner_id_from_payload,
+)
 from utils import payments as payment_gateway
 from utils.listing_lifecycle import (
     featured_plan, plan_for, payment_required, currency as plan_currency,
     listing_state, days_until_expiry, plans_payload, lead_details_locked,
     is_effectively_featured, can_feature_another, FeaturedSlotsFullError,
+    combo_plan,
 )
 
 logger = logging.getLogger("realtyhub")
@@ -54,24 +56,16 @@ def _hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def get_owner_id():
-    ident = str(get_jwt_identity() or "")
-    if not ident.startswith("owner:"):
-        return None
-    try:
-        return int(ident.split(":", 1)[1])
-    except ValueError:
-        return None
-
-
 def owner_required(fn):
-    @jwt_required()
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        owner_id = get_owner_id()
-        if not owner_id:
+        payload = load_owner_payload()
+        if not payload:
             return jsonify({"error": "Owner login required"}), 401
-        owner = Owner.query.get(owner_id)
+        if not owner_csrf_ok(payload):
+            return jsonify({"error": "Missing CSRF token"}), 401
+        owner_id = owner_id_from_payload(payload)
+        owner = Owner.query.get(owner_id) if owner_id else None
         if not owner or not owner.is_active:
             return jsonify({"error": "Owner login required"}), 401
         g.owner = owner
@@ -131,8 +125,8 @@ def _parse_coord(value, min_v, max_v):
 
 
 def _issue_cookie(resp, owner):
-    token = create_access_token(identity=f"owner:{owner.id}")
-    set_access_cookies(resp, token)
+    # Isolated owner cookies (separate from the admin access_token_cookie).
+    return issue_owner_session(resp, owner)
 
 
 def _send_verification(owner):
@@ -257,18 +251,14 @@ def login():
 
 @owner_bp.route("/logout", methods=["POST"])
 def logout():
-    # No @owner_required: cookies must clear even when the token has already
-    # expired or been revoked (session-expiry logout).
-    from flask_jwt_extended import verify_jwt_in_request
-    try:
-        verify_jwt_in_request(optional=True)
-        if get_owner_id():
-            from utils.auth import revoke_current_token
-            revoke_current_token()
-    except Exception:
-        pass
+    # No @owner_required: owner cookies must clear even when the token has
+    # already expired or been revoked (session-expiry logout). Only the owner
+    # cookies are touched here so an admin session is never affected.
+    payload = load_owner_payload()
+    if payload:
+        revoke_token(payload.get("jti"))
     resp = jsonify({"message": "Logged out"})
-    unset_jwt_cookies(resp)
+    clear_owner_session(resp)
     return resp
 
 
@@ -623,6 +613,78 @@ def update_my_property(id):
     })
 
 
+@owner_bp.route("/properties/<int:id>/gallery-images", methods=["POST"])
+@owner_required
+@owner_verified
+def add_owner_gallery_images(id):
+    """Attach images from gallery URLs to one of the owner's properties."""
+    prop = _own_or_404(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    data = request.get_json(silent=True) or {}
+    urls = data.get("urls") or []
+    if not isinstance(urls, list):
+        return jsonify({"error": "urls array is required"}), 400
+    urls = [u.strip() for u in urls if isinstance(u, str) and u.strip()]
+    if not urls:
+        return jsonify({"error": "No URLs provided"}), 400
+    max_order = db.session.query(func.max(PropertyImage.order)).filter_by(property_id=id).scalar()
+    start_order = (max_order or 0) + 1
+    for i, url in enumerate(urls):
+        db.session.add(PropertyImage(property_id=id, image_url=url, order=start_order + i))
+    db.session.commit()
+    return jsonify({"message": "Gallery images attached", "urls": urls}), 201
+
+
+@owner_bp.route("/properties/<int:id>/reorder-images", methods=["POST"])
+@owner_required
+@owner_verified
+def reorder_owner_images(id):
+    """Reorder images belonging to one of the owner's properties."""
+    prop = _own_or_404(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    data = request.json
+    if not isinstance(data, list):
+        return jsonify({"error": "Expected a list of {id, order}"}), 400
+    for item in data:
+        if not isinstance(item, dict) or "id" not in item or "order" not in item:
+            return jsonify({"error": "Each item must have 'id' and 'order'"}), 400
+    for item in data:
+        img = PropertyImage.query.filter_by(id=item["id"], property_id=id).first()
+        if img:
+            img.order = item["order"]
+    db.session.commit()
+    return jsonify({"message": "Reordered"})
+
+
+@owner_bp.route("/preset-features", methods=["POST"])
+@owner_required
+def create_owner_preset_feature():
+    """Quick-add a new key feature; shared across all listings (deduped by label)."""
+    data = request.get_json(silent=True) or {}
+    label = (data.get("label") or "").strip()
+    if not label:
+        return jsonify({"error": "Feature label is required"}), 400
+    if len(label) > 100:
+        return jsonify({"error": "Feature label is too long"}), 400
+    existing = PresetFeature.query.filter(func.lower(PresetFeature.label) == label.lower()).first()
+    if existing:
+        return jsonify({
+            "id": existing.id, "label": existing.label,
+            "sentence": existing.sentence, "existing": True,
+        }), 200
+    sentence = (data.get("sentence") or "").strip() or f"{label} available."
+    max_order = db.session.query(func.max(PresetFeature.sort_order)).scalar() or 0
+    feat = PresetFeature(label=label, sentence=sentence, is_active=True, sort_order=max_order + 1)
+    db.session.add(feat)
+    db.session.commit()
+    return jsonify({
+        "id": feat.id, "label": feat.label,
+        "sentence": feat.sentence, "existing": False,
+    }), 201
+
+
 # =========================
 # CLOSE / REOPEN
 # =========================
@@ -668,6 +730,8 @@ def _txn_dict(txn):
         "amount": float(txn.amount) if txn.amount is not None else None,
         "currency": txn.currency,
         "duration_days": txn.duration_days,
+        "featured_days": txn.featured_days or 0,
+        "discount_percent": float(txn.discount_percent) if txn.discount_percent else 0,
         "status": txn.status,
         "method": txn.method,
         "provider": txn.provider,
@@ -678,17 +742,32 @@ def _txn_dict(txn):
 
 
 def _create_checkout(prop, purpose):
-    """Create a pending transaction and provider order for a listing/feature."""
+    """Create a pending transaction and provider order for a listing/feature/combo."""
+    featured_days = 0
+    discount_percent = 0
+
     if purpose == "featured":
         # A slot is only needed when the property is not already featured.
         if not is_effectively_featured(prop) and not can_feature_another():
             raise FeaturedSlotsFullError()
         plan = featured_plan()
+        amount = plan["price"]
+        duration_days = plan["duration_days"]
+    elif purpose == "combo":
+        # Listing validity + featured add-on, discounted as a bundle.
+        if not is_effectively_featured(prop) and not can_feature_another():
+            raise FeaturedSlotsFullError()
+        plan = combo_plan(prop.transaction_type)
+        amount = plan["amount"]
+        duration_days = plan["duration_days"]
+        featured_days = plan["featured_days"]
+        discount_percent = plan["discount_percent"]
     else:
         plan = plan_for(prop.transaction_type)
+        amount = plan["price"]
+        duration_days = plan["duration_days"]
 
     provider = payment_gateway.get_payment_provider()
-    amount = plan["price"]
     currency = plan_currency()
 
     txn = ListingTransaction(
@@ -698,7 +777,9 @@ def _create_checkout(prop, purpose):
         transaction_type=prop.transaction_type,
         amount=amount,
         currency=currency,
-        duration_days=plan["duration_days"],
+        duration_days=duration_days,
+        featured_days=featured_days,
+        discount_percent=discount_percent,
         provider=provider.name,
         method="online",
         status="pending",
@@ -722,7 +803,9 @@ def _create_checkout(prop, purpose):
         "purpose": purpose,
         "amount": amount,
         "currency": currency,
-        "duration_days": plan["duration_days"],
+        "duration_days": duration_days,
+        "featured_days": featured_days,
+        "discount_percent": discount_percent,
         "provider": provider.name,
         "uses_client_js": getattr(provider, "uses_client_js", False),
         "public_key": getattr(provider, "public_key", ""),
@@ -748,8 +831,11 @@ def checkout_property(id):
         return jsonify({"error": "Reopen the property before purchasing for it"}), 400
     data = request.json or {}
     purpose = (data.get("purpose") or "listing").strip().lower()
-    if purpose not in ("listing", "featured"):
+    if purpose not in ("listing", "featured", "combo"):
         return jsonify({"error": "Invalid purpose"}), 400
+    if purpose == "combo" and is_effectively_featured(prop):
+        return jsonify({"error": "This listing is already featured. Extend the boost from the Feature action instead.",
+                        "code": "already_featured"}), 400
     try:
         payload = _create_checkout(prop, purpose)
     except FeaturedSlotsFullError:
@@ -1206,9 +1292,8 @@ def delete_my_account():
 
     db.session.commit()
 
-    from utils.auth import revoke_current_token
-    revoke_current_token()
+    revoke_token((load_owner_payload() or {}).get("jti"))
 
     resp = jsonify({"message": "Your account and personal data have been deleted."})
-    unset_jwt_cookies(resp)
+    clear_owner_session(resp)
     return resp

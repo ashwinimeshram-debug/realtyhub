@@ -24,6 +24,7 @@ DEFAULTS = {
     "listing_rent_days": 30,
     "featured_price": 299,
     "featured_days": 30,
+    "featured_bundle_discount_percent": 30,
     "section_featured_count": 20,
     "listing_grace_days": 7,
     "listing_expiry_reminder_days": "15,7,3,1",
@@ -111,6 +112,39 @@ def featured_plan():
     }
 
 
+def bundle_discount_percent():
+    """Admin-configurable discount (%) applied to the featured charge in a combo."""
+    pct = _setting_int("featured_bundle_discount_percent",
+                       DEFAULTS["featured_bundle_discount_percent"])
+    return min(max(pct, 0), 100)
+
+
+def combo_plan(transaction_type):
+    """Listing validity + featured add-on bought together, with the bundle discount.
+
+    Returns the listing plan, the featured portion and the combined price
+    (``amount``) after discounting only the featured charge.
+    """
+    listing = plan_for(transaction_type)
+    featured = featured_plan()
+    pct = bundle_discount_percent()
+    featured_price = featured["price"]
+    featured_discounted = round(featured_price * (100 - pct) / 100.0, 2)
+    savings = round(featured_price - featured_discounted, 2)
+    return {
+        "purpose": "combo",
+        "transaction_type": listing["transaction_type"],
+        "duration_days": listing["duration_days"],
+        "featured_days": featured["duration_days"],
+        "listing_price": listing["price"],
+        "featured_price": featured_price,
+        "discount_percent": pct,
+        "featured_discounted": featured_discounted,
+        "savings": savings,
+        "amount": round(listing["price"] + featured_discounted, 2),
+    }
+
+
 def plans_payload():
     """Plans for the owner checkout UI."""
     capacity = featured_capacity()
@@ -122,6 +156,7 @@ def plans_payload():
         "sell": plan_for("sell"),
         "rent": plan_for("rent"),
         "featured": featured_plan(),
+        "featured_bundle_discount_percent": bundle_discount_percent(),
         "featured_capacity": capacity,
         "featured_slots_used": used,
         "featured_slots_available": max(0, capacity - used),
@@ -471,7 +506,14 @@ def apply_paid_transaction(txn, provider_payment_id=None, method="online", provi
         db.session.commit()
         return True
 
-    if txn.purpose == "featured":
+    if txn.purpose == "combo":
+        # Single payment: publish/renew the listing AND add the featured boost.
+        if prop.published_at is None:
+            publish_listing(prop, txn.duration_days, now)
+        else:
+            renew_listing(prop, txn.duration_days, now)
+        add_featured_days(prop, txn.featured_days or 0, now)
+    elif txn.purpose == "featured":
         add_featured_days(prop, txn.duration_days, now)
     elif prop.published_at is None:
         publish_listing(prop, txn.duration_days, now)

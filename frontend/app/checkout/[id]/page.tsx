@@ -22,6 +22,7 @@ interface Plans {
   sell: Plan;
   rent: Plan;
   featured: Plan;
+  featured_bundle_discount_percent?: number;
   featured_capacity?: number;
   featured_slots_used?: number;
   featured_slots_available?: number;
@@ -36,6 +37,8 @@ interface OwnerProp {
   listing_state: string;
   payment_status: string;
   expires_at: string | null;
+  is_featured?: boolean;
+  featured_until: string | null;
 }
 
 function loadRazorpay(): Promise<boolean> {
@@ -67,6 +70,10 @@ function CheckoutInner() {
   const [error, setError] = useState("");
   const [paying, setPaying] = useState(false);
   const [done, setDone] = useState(false);
+  const [includeFeatured, setIncludeFeatured] = useState(false);
+
+  const fmt = (n: number) =>
+    `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,6 +108,18 @@ function CheckoutInner() {
         : plans.sell
     : null;
 
+  // Already featured (active boost) → hide the add-on; extend via the Feature action.
+  const alreadyFeatured = !!prop?.is_featured &&
+    (!prop?.featured_until || new Date(prop.featured_until).getTime() > Date.now());
+  const showCombo = purpose !== "featured" && !!plans && !alreadyFeatured;
+  const discountPct = plans?.featured_bundle_discount_percent ?? 0;
+  const featuredListed = plans?.featured?.price ?? 0;
+  const featuredDiscounted = Math.round(featuredListed * (100 - discountPct)) / 100;
+  const comboActive = showCombo && includeFeatured;
+  const comboTotal = ((plan?.price ?? 0) + featuredDiscounted);
+  const comboSavings = featuredListed - featuredDiscounted;
+  const payable = comboActive ? comboTotal : (plan?.price ?? 0);
+
   const finishSuccess = () => {
     setDone(true);
     toast("Payment successful — your listing is being updated", "success");
@@ -109,9 +128,10 @@ function CheckoutInner() {
 
   const handlePay = async () => {
     if (!plan) return;
+    const payPurpose = comboActive ? "combo" : purpose;
     setPaying(true);
     try {
-      const res = await API.post(`/owner/properties/${id}/checkout`, { purpose });
+      const res = await API.post(`/owner/properties/${id}/checkout`, { purpose: payPurpose });
       const data = res.data;
 
       if (data.provider === "mock" || !data.uses_client_js) {
@@ -131,7 +151,11 @@ function CheckoutInner() {
         currency: data.order.currency,
         order_id: data.order.order_id,
         name: siteName,
-        description: purpose === "featured" ? "Featured listing" : "Listing publication",
+        description: payPurpose === "featured"
+          ? "Featured listing"
+          : payPurpose === "combo"
+            ? "Listing + Featured bundle"
+            : "Listing publication",
         handler: () => {
           finishSuccess();
         },
@@ -178,7 +202,7 @@ function CheckoutInner() {
   }
 
   const isFeatured = purpose === "featured";
-  const slotsFull = isFeatured && (plans?.featured_slots_available ?? 1) <= 0;
+  const slotsFull = (isFeatured || comboActive) && (plans?.featured_slots_available ?? 1) <= 0;
   const title = isFeatured ? "Feature Your Listing" : prop?.listing_state === "payment_pending" ? "Publish Your Listing" : "Renew Your Listing";
 
   return (
@@ -204,13 +228,56 @@ function CheckoutInner() {
             <div className="flex items-end justify-between mb-1">
               <span className="text-sm text-gray-500">Amount payable</span>
               <span className="text-3xl font-extrabold" style={{ color: "var(--primary)" }}>
-                ₹{Number(plan.price).toLocaleString("en-IN")}
+                {fmt(payable)}
               </span>
             </div>
             <p className="text-xs text-gray-400 mb-5">
               Valid for {plan.duration_days} days · {plans.currency}
               {!isFeatured && plans.grace_days > 0 ? ` · ${plans.grace_days}-day grace` : ""}
             </p>
+
+            {comboActive && (
+              <div className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 space-y-1">
+                <div className="flex justify-between">
+                  <span>Listing ({plan.duration_days} days)</span>
+                  <span>{fmt(plan.price)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span>Featured add-on ({plans.featured.duration_days} days)</span>
+                  <span className="flex items-center gap-2">
+                    {discountPct > 0 && <s className="text-gray-400">{fmt(featuredListed)}</s>}
+                    <span className="font-semibold">{fmt(featuredDiscounted)}</span>
+                  </span>
+                </div>
+                {discountPct > 0 && (
+                  <div className="flex justify-between font-semibold border-t border-emerald-200 pt-1">
+                    <span>Bundle discount ({discountPct}% off Featured)</span>
+                    <span>−{fmt(comboSavings)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {showCombo && (
+              <label className="flex items-start gap-3 mb-5 p-4 rounded-xl border border-gray-200 cursor-pointer hover:border-blue-300 transition">
+                <input
+                  type="checkbox"
+                  checked={includeFeatured}
+                  onChange={(e) => setIncludeFeatured(e.target.checked)}
+                  disabled={slotsFull}
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                />
+                <span className="flex-1 text-left">
+                  <span className="block text-sm font-semibold text-gray-800">
+                    Feature this listing too
+                  </span>
+                  <span className="block text-xs text-gray-500 mt-0.5">
+                    Appear at the top of search results for {plans.featured.duration_days} days.
+                    {comboSavings > 0 && ` Save ${fmt(comboSavings)} when bundled (${discountPct}% off the Featured add-on).`}
+                  </span>
+                </span>
+              </label>
+            )}
 
             {slotsFull && (
               <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -224,6 +291,12 @@ function CheckoutInner() {
                 <span className="text-green-600">✓</span>
                 {isFeatured ? "Appears at the top of search and category listings" : "Live on the public property listings"}
               </li>
+              {comboActive && (
+                <li className="flex items-start gap-2">
+                  <span className="text-green-600">✓</span>
+                  Featured placement at the top of search and category listings
+                </li>
+              )}
               <li className="flex items-start gap-2">
                 <span className="text-green-600">✓</span>
                 Receive enquiries by email and WhatsApp
@@ -235,7 +308,7 @@ function CheckoutInner() {
             </ul>
 
             <button onClick={handlePay} disabled={paying || slotsFull} className="btn btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed">
-              {paying ? "Processing…" : slotsFull ? "Featured slots full" : `Pay ₹${Number(plan.price).toLocaleString("en-IN")}`}
+              {paying ? "Processing…" : slotsFull ? "Featured slots full" : `Pay ${fmt(payable)}`}
             </button>
             <Link href="/my-account" className="btn btn-ghost w-full text-center mt-3">Cancel</Link>
           </div>

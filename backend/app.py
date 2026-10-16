@@ -300,14 +300,13 @@ def _seed_type_fields():
     from models.models import PropertyTypeField
 
     facing_opts = ["East", "West", "North", "South", "North-East", "South-East", "North-West", "South-West"]
-    facing_short = ["East", "West", "North", "South"]
 
     fields = [
         # ── FLAT / APARTMENT ──
         ("flat", "bedrooms", "Bedrooms", "बेडरूम", "बेडरूम", "chip", ["1", "2", "3", "4", "5+"], None, None, 1, True),
         ("flat", "bathrooms", "Bathrooms", "बाथरूम", "बाथरूम", "chip", ["1", "2", "3", "4"], None, None, 2, True),
         ("flat", "furnishing", "Furnishing", "फर्निशिंग", "फर्निशिंग", "select", ["Unfurnished", "Semi-Furnished", "Fully Furnished"], None, None, 3, False),
-        ("flat", "facing", "Facing", "दिशा", "दिशा", "chip", facing_short, None, None, 4, False),
+        ("flat", "facing", "Facing", "दिशा", "दिशा", "chip", facing_opts, None, None, 4, False),
         ("flat", "floor_level", "Floor Level", "मजला", "मंज़िल", "text", ["Ground", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10+"], None, "e.g. Ground, 3", 5, False),
         ("flat", "total_floors", "Total Floors", "एकूण मजले", "कुल मंज़िलें", "text", ["1", "2", "3", "4", "5", "10+", "15+", "20+"], None, "e.g. 5, 10+", 6, False),
         ("flat", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "text", None, ["Sq. Ft.", "Sq. Yards"], "e.g. 1200 - 5000 Sq. Ft.", 7, True),
@@ -325,7 +324,7 @@ def _seed_type_fields():
         ("house", "bedrooms", "Bedrooms", "बेडरूम", "बेडरूम", "chip", ["1", "2", "3", "4", "5+"], None, None, 1, True),
         ("house", "bathrooms", "Bathrooms", "बाथरूम", "बाथरूम", "chip", ["1", "2", "3", "4"], None, None, 2, True),
         ("house", "furnishing", "Furnishing", "फर्निशिंग", "फर्निशिंग", "select", ["Unfurnished", "Semi-Furnished", "Fully Furnished"], None, None, 3, False),
-        ("house", "facing", "Facing", "दिशा", "दिशा", "chip", facing_short, None, None, 4, False),
+        ("house", "facing", "Facing", "दिशा", "दिशा", "chip", facing_opts, None, None, 4, False),
         ("house", "total_floors", "Total Floors", "एकूण मजले", "कुल मंज़िलें", "text", ["1", "2", "3"], None, "e.g. 2", 5, False),
         ("house", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "text", None, ["Sq. Ft.", "Sq. Yards", "Acres"], "e.g. 1500 - 3000 Sq. Ft.", 6, True),
         ("house", "parking", "Parking", "पार्किंग", "पार्किंग", "chip", ["Open", "Covered", "None"], None, None, 7, False),
@@ -335,7 +334,7 @@ def _seed_type_fields():
         # ── COMMERCIAL ──
         ("commercial", "area_size", "Area Size", "क्षेत्रफळ", "क्षेत्रफल", "text", None, ["Sq. Ft.", "Sq. Yards"], "e.g. 2000 - 8000 Sq. Ft.", 1, True),
         ("commercial", "furnishing", "Furnishing", "फर्निशिंग", "फर्निशिंग", "select", ["Unfurnished", "Semi-Furnished", "Fully Furnished"], None, None, 2, False),
-        ("commercial", "facing", "Facing", "दिशा", "दिशा", "chip", facing_short, None, None, 3, False),
+        ("commercial", "facing", "Facing", "दिशा", "दिशा", "chip", facing_opts, None, None, 3, False),
         ("commercial", "floor_level", "Floor Level", "मजला", "मंज़िल", "text", ["Ground", "1", "2", "3"], None, "e.g. Ground, 2", 4, False),
         ("commercial", "parking", "Parking", "पार्किंग", "पार्किंग", "chip", ["Open", "Covered", "None"], None, None, 5, False),
     ]

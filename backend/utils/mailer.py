@@ -321,10 +321,15 @@ def listing_published_email(prop, owner_name):
 
 
 def payment_receipt_email(prop, txn, owner_name):
-    purpose = "Featured placement" if txn.purpose == "featured" else "Listing payment"
+    if txn.purpose == "combo":
+        purpose = "listing + featured bundle"
+    elif txn.purpose == "featured":
+        purpose = "featured placement"
+    else:
+        purpose = "listing payment"
     body = [
         _para(f"Hi {owner_name},"),
-        _para(f"We have received your payment for <strong>{purpose.lower()}</strong>."),
+        _para(f"We have received your payment for <strong>{purpose}</strong>."),
         _row("Property", prop.title),
         _row("Listing ID", prop.listing_id or "-"),
         _row("Amount", f"₹{float(txn.amount):,.0f} {txn.currency}"),
@@ -332,6 +337,8 @@ def payment_receipt_email(prop, txn, owner_name):
         _btn("View My Properties", frontend_url("my-account")),
         _para(f"Thank you for using {get_site_name()}."),
     ]
+    if txn.purpose == "combo" and txn.discount_percent:
+        body.insert(5, _row("Bundle discount", f"{float(txn.discount_percent):g}% off the Featured add-on"))
     return _shell("Payment received", "Payment received", body)
 
 

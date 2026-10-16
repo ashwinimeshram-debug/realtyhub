@@ -34,6 +34,7 @@ const STATUS_CLS: Record<string, string> = {
 const PURPOSE_LABEL: Record<string, string> = {
   listing: "Listing",
   featured: "Featured",
+  combo: "Listing + Featured",
 };
 
 export default function AdminPaymentsPage() {
@@ -100,6 +101,7 @@ export default function AdminPaymentsPage() {
           <option value="">All purposes</option>
           <option value="listing">Listing</option>
           <option value="featured">Featured</option>
+          <option value="combo">Listing + Featured</option>
         </select>
         <button onClick={load} className="btn btn-sm btn-ghost">Refresh</button>
       </div>

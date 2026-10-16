@@ -9,6 +9,7 @@ import { isPriceRequestOnly } from "@/lib/priceFormat";
 
 import ImageUploader from "@/components/ImageUploader";
 import PriceInput from "@/components/post-property/PriceInput";
+import KeyFeaturesSelect from "@/components/post-property/KeyFeaturesSelect";
 
 type TemplateMap = Record<string, Array<{ id: number; template_text: string }>>;
 
@@ -505,27 +506,14 @@ export default function PropertyDetail() {
                   icon={<svg className="w-5 h-5" style={{ color: "var(--primary)" }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>}
                   title="Features, Amenities & Highlights"
                 />
-                <div className="mb-5">
-                  <label className="block text-sm font-semibold mb-2" style={{ color: "var(--text-dark)" }}>Key Features</label>
-                  <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Select features — they will be added as descriptive sentences in your listing.</p>
-                  <div className="flex flex-wrap gap-2">
-                    {presetFeatures.map((feat) => {
-                      const active = selectedChips.includes(feat.label);
-                      return (
-                        <button
-                          key={feat.label}
-                          type="button"
-                          disabled={isDisabled}
-                          onClick={() => setSelectedChips((prev) => active ? prev.filter((c) => c !== feat.label) : [...prev, feat.label])}
-                          className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${active ? "text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"} ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
-                          style={active ? { backgroundColor: "var(--primary)" } : {}}
-                        >
-                          {active ? "✓ " : "+ "}{feat.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <KeyFeaturesSelect
+                  features={presetFeatures}
+                  selected={selectedChips}
+                  onToggle={(lbl) => setSelectedChips((prev) => prev.includes(lbl) ? prev.filter((c) => c !== lbl) : [...prev, lbl])}
+                  onFeatureAdded={(feat) => setPresetFeatures((prev) => prev.some((f) => f.label === feat.label) ? prev : [...prev, feat])}
+                  createEndpoint="admin"
+                  disabled={isDisabled}
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div>
                     <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Overview</label>

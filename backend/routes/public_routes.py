@@ -1,5 +1,4 @@
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import get_jwt_identity, jwt_required
 from models.models import db, Admin, Owner, Property, PropertyImage, PropertyContact, PropertyTypeField, PropertyValue, Lead, PresetFeature, PropertyFeature
 from utils.helpers import generate_listing_id, paginate
 from sqlalchemy import or_, func
@@ -7,6 +6,7 @@ from utils.search import apply_property_filters
 from utils.listing_lifecycle import (
     public_visible_condition, owner_visible_condition,
 )
+from utils.owner_auth import load_owner_payload, owner_csrf_ok, get_owner_id
 from utils.mailer import (
     connect_ack_visitor_email, connect_owner_email, get_site_name, new_lead_email,
     send_email_async, submission_received_email, submission_confirmed_email,
@@ -84,18 +84,15 @@ def _parse_coord(value, min_v, max_v):
 
 
 @public_bp.route("/submit-property", methods=["POST"])
-@jwt_required()
 @limiter.limit("10/hour")
 def submit_property():
     if not is_setting_enabled("allow_public_post", default=True):
         return jsonify({"error": "Public property posting is currently disabled."}), 403
-    ident = str(get_jwt_identity() or "")
-    if not ident.startswith("owner:"):
+    payload = load_owner_payload()
+    if not payload or not owner_csrf_ok(payload):
         return jsonify({"error": "Owner login required to post a property"}), 401
-    try:
-        owner = Owner.query.get(int(ident.split(":", 1)[1]))
-    except ValueError:
-        owner = None
+    owner_id = get_owner_id()
+    owner = Owner.query.get(owner_id) if owner_id else None
     if not owner or not owner.is_active:
         return jsonify({"error": "Owner login required to post a property"}), 401
     if not owner.is_verified:

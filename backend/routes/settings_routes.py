@@ -107,6 +107,7 @@ def admin_update_settings():
         "listing_sell_price", "listing_sell_days",
         "listing_rent_price", "listing_rent_days",
         "featured_price", "featured_days",
+        "featured_bundle_discount_percent",
         "listing_grace_days", "listing_expiry_reminder_days",
         "payment_provider", "payment_key_id", "payment_currency",
         "payment_key_secret", "payment_webhook_secret",

@@ -18,12 +18,12 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-type TabMode = "active" | "followups" | "archived";
+export type TabMode = "active" | "followups" | "archived";
 
-const STAGES = ["NEW", "CONTACTED", "SITE_VISIT", "NEGOTIATION", "CLOSED"] as const;
-type Stage = (typeof STAGES)[number];
+export const STAGES = ["NEW", "CONTACTED", "SITE_VISIT", "NEGOTIATION", "CLOSED"] as const;
+export type Stage = (typeof STAGES)[number];
 
-const STAGE_META: Record<Stage, { label: string; color: string; bg: string; border: string }> = {
+export const STAGE_META: Record<Stage, { label: string; color: string; bg: string; border: string }> = {
   NEW:         { label: "New",         color: "#3b82f6", bg: "bg-blue-50",   border: "border-blue-200" },
   CONTACTED:   { label: "Contacted",   color: "#f59e0b", bg: "bg-amber-50",  border: "border-amber-200" },
   SITE_VISIT:  { label: "Site Visit",  color: "#8b5cf6", bg: "bg-purple-50", border: "border-purple-200" },
@@ -105,6 +105,7 @@ function followUpBadge(dateStr: string | null): { label: string; bg: string; tex
 export default function OwnerLeadsBoard() {
   const { toast } = useToast();
   const [tab, setTab] = useState<TabMode>("active");
+  const [view, setView] = useState<"stage" | "property">("stage");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [archivedLeads, setArchivedLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,6 +211,25 @@ export default function OwnerLeadsBoard() {
           ))}
         </div>
 
+        {tab === "active" && (
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 shrink-0">
+            {([
+              { key: "stage" as const, label: "Stage board" },
+              { key: "property" as const, label: "By property" },
+            ]).map((v) => (
+              <button
+                key={v.key}
+                onClick={() => setView(v.key)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
+                  view === v.key ? "bg-white shadow text-[var(--primary)]" : "text-gray-600 hover:text-gray-800"
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {tab !== "followups" && (
           <input
             type="text"
@@ -225,7 +245,11 @@ export default function OwnerLeadsBoard() {
       </div>
 
       {tab === "active" && (
-        <PipelineView leads={filteredLeads} onLeadClick={openLeadDetail} onRefresh={fetchLeads} />
+        view === "stage" ? (
+          <PipelineView leads={filteredLeads} onLeadClick={openLeadDetail} onRefresh={fetchLeads} />
+        ) : (
+          <PropertyGroupedView leads={filteredLeads} onLeadClick={openLeadDetail} />
+        )
       )}
 
       {tab === "followups" && <FollowUpsView onLeadClick={openLeadDetail} />}
@@ -316,6 +340,112 @@ function PipelineView({
           })}
         </div>
       </DndContext>
+    </div>
+  );
+}
+
+// =====================
+// GROUP BY PROPERTY
+// =====================
+function PropertyGroupedView({
+  leads,
+  onLeadClick,
+}: {
+  leads: Lead[];
+  onLeadClick: (id: number) => void;
+}) {
+  const groups = new Map<
+    string,
+    { propertyId: number | null; title: string; listingId: string | null; leads: Lead[] }
+  >();
+  for (const lead of leads) {
+    const key = lead.property_id != null ? String(lead.property_id) : "none";
+    const group = groups.get(key) ?? {
+      propertyId: lead.property_id,
+      title: lead.property_title || "No property",
+      listingId: lead.listing_id,
+      leads: [],
+    };
+    group.leads.push(lead);
+    groups.set(key, group);
+  }
+  const ordered = [...groups.values()].sort((a, b) => {
+    if (a.propertyId == null) return 1;
+    if (b.propertyId == null) return -1;
+    return a.title.localeCompare(b.title);
+  });
+
+  if (ordered.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 p-10 text-center shadow-sm">
+        <p className="text-gray-500 text-sm">No leads yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {ordered.map((group) => (
+        <div key={group.propertyId ?? "none"} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <span className="font-semibold text-sm" style={{ color: "var(--text-dark)" }}>{group.title}</span>
+            {group.listingId && <span className="text-xs text-gray-400">{group.listingId}</span>}
+            <span className="ml-auto text-xs font-medium text-gray-600 bg-white border border-gray-200 px-2 py-0.5 rounded-full">
+              {group.leads.length} lead{group.leads.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5 px-4 py-2 border-b border-gray-50">
+            {STAGES.map((s) => {
+              const count = group.leads.filter((l) => l.stage === s).length;
+              if (!count) return null;
+              return (
+                <span
+                  key={s}
+                  className="text-[10px] px-2 py-0.5 rounded font-medium text-white"
+                  style={{ backgroundColor: STAGE_META[s].color }}
+                >
+                  {STAGE_META[s].label} {count}
+                </span>
+              );
+            })}
+          </div>
+          <div className="divide-y divide-gray-50">
+            {group.leads.map((lead) => {
+              const meta = STAGE_META[lead.stage];
+              const badge = followUpBadge(lead.follow_up_date);
+              return (
+                <button
+                  key={lead.id}
+                  onClick={() => onLeadClick(lead.id)}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-50 transition flex items-center gap-3"
+                >
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: meta.color }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="font-medium text-sm truncate">{lead.name}</span>
+                      {lead.locked && <LockedBadge />}
+                    </span>
+                    <span className="block text-xs text-gray-500 truncate">
+                      {lead.locked ? "Pay to view contact details" : lead.mobile || lead.email || "-"}
+                    </span>
+                  </span>
+                  <span
+                    className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded font-medium text-white shrink-0"
+                    style={{ backgroundColor: meta.color }}
+                  >
+                    {meta.label}
+                  </span>
+                  {badge.label && (
+                    <span className={`hidden md:inline-block ${badge.bg} ${badge.text} text-[10px] px-2 py-0.5 rounded font-medium shrink-0`}>
+                      {badge.label}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

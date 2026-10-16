@@ -11,6 +11,8 @@ import { processImages } from "@/lib/imageProcessor";
 import ImageUploader from "@/components/ImageUploader";
 import DynamicField, { type FieldDef } from "@/components/post-property/DynamicField";
 import PriceInput from "@/components/post-property/PriceInput";
+import KeyFeaturesSelect from "@/components/post-property/KeyFeaturesSelect";
+import GeoPicker from "@/components/GeoPicker";
 import { isPriceRequestOnly } from "@/lib/priceFormat";
 
 function SectionHeader({ icon, title, right }: { icon: React.ReactNode; title: string; right?: React.ReactNode }) {
@@ -79,6 +81,7 @@ function PostPropertyForm() {
   const [presetFeatures, setPresetFeatures] = useState<Array<{ id: number; label: string; sentence: string }>>([]);
 
   const [existingImages, setExistingImages] = useState<ExistingImage[]>([]);
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [removeImageIds, setRemoveImageIds] = useState<number[]>([]);
   const [detailLoading, setDetailLoading] = useState(isEdit);
   const [detailError, setDetailError] = useState("");
@@ -187,6 +190,8 @@ function PostPropertyForm() {
           price: d.price != null ? String(d.price) : "",
           price_text: d.price_text || "*",
           location: d.location || "",
+          latitude: d.latitude != null ? String(d.latitude) : "",
+          longitude: d.longitude != null ? String(d.longitude) : "",
           transaction_type: d.transaction_type || "",
           property_type: d.property_type || "",
           listed_by: d.listed_by || "owner",
@@ -258,6 +263,7 @@ function PostPropertyForm() {
     setSelectedClosingId(null);
     setSelectedChips([]);
     setExistingImages([]);
+    setGalleryUrls([]);
     setRemoveImageIds([]);
   };
 
@@ -339,12 +345,26 @@ function PostPropertyForm() {
         const res = await API.put(`/owner/properties/${editId}`, formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
+        if (galleryUrls.length > 0) {
+          try {
+            await API.post(`/owner/properties/${editId}/gallery-images`, { urls: galleryUrls });
+          } catch {
+            // Non-fatal: the property is saved; gallery images can be attached again on edit.
+          }
+        }
         toast(res.data.status === "pending" ? "Property updated. It is pending review again." : "Property updated", "success");
         router.push("/my-account");
       } else {
         const res = await API.post("/submit-property", formData, {
           headers: { "Content-Type": "multipart/form-data" },
         });
+        if (galleryUrls.length > 0 && res.data?.property_id) {
+          try {
+            await API.post(`/owner/properties/${res.data.property_id}/gallery-images`, { urls: galleryUrls });
+          } catch {
+            // Non-fatal: the listing is saved; gallery images can be attached again on edit.
+          }
+        }
         setResult(res.data);
         setSubmitted(true);
       }
@@ -570,26 +590,13 @@ function PostPropertyForm() {
                   title="Features, Amenities & Highlights"
                 />
 
-                <div className="mb-5">
-                  <label className="block text-sm font-semibold mb-2" style={{ color: "var(--text-dark)" }}>Key Features</label>
-                  <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Select features — they will be added as descriptive sentences in your listing.</p>
-                  <div className="flex flex-wrap gap-2">
-                    {presetFeatures.map((feat) => {
-                      const active = selectedChips.includes(feat.label);
-                      return (
-                        <button
-                          key={feat.label}
-                          type="button"
-                          onClick={() => setSelectedChips((prev) => active ? prev.filter((c) => c !== feat.label) : [...prev, feat.label])}
-                          className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${active ? "text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"}`}
-                          style={active ? { backgroundColor: "var(--primary)" } : {}}
-                        >
-                          {active ? "✓ " : "+ "}{feat.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <KeyFeaturesSelect
+                  features={presetFeatures}
+                  selected={selectedChips}
+                  onToggle={(lbl) => setSelectedChips((prev) => prev.includes(lbl) ? prev.filter((c) => c !== lbl) : [...prev, lbl])}
+                  onFeatureAdded={(feat) => setPresetFeatures((prev) => prev.some((f) => f.label === feat.label) ? prev : [...prev, feat])}
+                  createEndpoint="owner"
+                />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div>
@@ -644,6 +651,14 @@ function PostPropertyForm() {
                 placeholder="e.g. RERA Reg. No. P50500012345"
                 value={form.rera_details || ""}
                 onChange={(e) => setForm({ ...form, rera_details: e.target.value })}
+              />
+            </div>
+
+            <div className="mb-6">
+              <GeoPicker
+                latitude={form.latitude || ""}
+                longitude={form.longitude || ""}
+                onChange={({ latitude, longitude }) => setForm({ ...form, latitude, longitude })}
               />
             </div>
 
@@ -744,6 +759,19 @@ function PostPropertyForm() {
               files={files}
               onFilesChange={setFiles}
               existingImages={existingImages}
+              galleryUrls={galleryUrls}
+              onGalleryUrlsChange={setGalleryUrls}
+              onReorderExisting={async (reordered) => {
+                setExistingImages(reordered);
+                if (isEdit && editId) {
+                  const payload = reordered.map((img, i) => ({ id: img.id, order: i + 1 }));
+                  try {
+                    await API.post(`/owner/properties/${editId}/reorder-images`, payload);
+                  } catch {
+                    // Non-fatal: order is kept locally; it can be re-saved on the next edit.
+                  }
+                }
+              }}
               onDeleteExisting={handleDeleteExisting}
               disabled={false}
             />

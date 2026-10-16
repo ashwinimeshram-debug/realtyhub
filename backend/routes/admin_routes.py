@@ -293,6 +293,9 @@ def get_all_properties():
     page = request.args.get("page", 1)
     per_page = request.args.get("per_page", 50)
     base_query = Property.query.order_by(Property.created_at.desc())
+    # Owner-posted listings (owner_id set) are visible to admins only.
+    if not is_admin(current_admin()):
+        base_query = base_query.filter(Property.owner_id.is_(None))
     properties, total, page, per_page = paginate(base_query, page, per_page)
 
     property_ids = [p.id for p in properties]
@@ -1573,18 +1576,23 @@ def admin_get_preset_features():
 @jwt_required()
 def admin_create_preset_feature():
     data = request.json
-    if not data or not data.get("label") or not data.get("sentence"):
-        return jsonify({"error": "label and sentence are required"}), 400
+    if not data or not data.get("label"):
+        return jsonify({"error": "label is required"}), 400
+    label = data["label"].strip()
+    sentence = (data.get("sentence") or "").strip() or f"{label} available."
     feat = PresetFeature(
-        label=data["label"].strip(),
-        sentence=data["sentence"].strip(),
+        label=label,
+        sentence=sentence,
         is_active=data.get("is_active", True),
         sort_order=data.get("sort_order", 0),
     )
     db.session.add(feat)
     db.session.commit()
     _log_activity("created", "preset_features", feat.id)
-    return jsonify({"message": "Feature created", "id": feat.id}), 201
+    return jsonify({
+        "message": "Feature created", "id": feat.id,
+        "label": feat.label, "sentence": feat.sentence,
+    }), 201
 
 
 @admin_bp.route("/preset-features/<int:id>", methods=["PUT"])

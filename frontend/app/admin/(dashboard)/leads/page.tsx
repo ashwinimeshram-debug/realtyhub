@@ -5,6 +5,7 @@ import API from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/hooks/useConfirm";
 import { useAuth } from "@/hooks/useAuth";
+import AdminLeadsReport from "@/components/reports/AdminLeadsReport";
 import {
   DndContext,
   closestCenter,
@@ -20,7 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-type TabMode = "active" | "followups" | "archived";
+type TabMode = "active" | "followups" | "archived" | "reports";
 
 const STAGES = ["NEW", "CONTACTED", "SITE_VISIT", "NEGOTIATION", "CLOSED"] as const;
 type Stage = (typeof STAGES)[number];
@@ -435,6 +436,7 @@ export default function LeadsPage() {
             { key: "active" as TabMode, label: "Active Pipeline" },
             { key: "followups" as TabMode, label: "Follow-ups" },
             ...(isAdmin ? [{ key: "archived" as TabMode, label: "Archived" }] : []),
+            { key: "reports" as TabMode, label: "Reports" },
           ]).map((t) => (
             <button
               key={t.key}
@@ -450,7 +452,7 @@ export default function LeadsPage() {
           ))}
         </div>
 
-        {tab !== "followups" && (
+        {(tab === "active" || tab === "archived") && (
           <input
             type="text"
             placeholder="Search name, email, mobile..."
@@ -476,6 +478,8 @@ export default function LeadsPage() {
       )}
 
       {tab === "followups" && <FollowUpsView onLeadClick={openLeadDetail} />}
+
+      {tab === "reports" && <AdminLeadsReport />}
 
       {tab === "archived" && (
         <ArchivedView

@@ -4,6 +4,7 @@ from extensions import db, limiter
 from models.analytics_model import PageVisit, SearchLog, BannerClick
 from models.models import PropertyContact, Lead
 from models.contactus import Contactus
+from utils.owner_auth import get_owner_id
 from datetime import datetime, timedelta
 from sqlalchemy import func, text
 
@@ -51,7 +52,7 @@ def _classify_referrer(referrer: str) -> str:
 def track_visit():
     try:
         verify_jwt_in_request(optional=True)
-        if get_jwt_identity():
+        if get_jwt_identity() or get_owner_id():
             return jsonify({"message": "skipped"}), 200
     except Exception:
         pass

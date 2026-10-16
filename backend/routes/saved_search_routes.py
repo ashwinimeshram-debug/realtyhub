@@ -2,12 +2,10 @@ import json
 import secrets
 
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import (
-    jwt_required, get_jwt_identity, verify_jwt_in_request,
-)
 
 from extensions import db, limiter
 from models.models import SavedSearch, Owner
+from utils.owner_auth import load_owner_payload, owner_csrf_ok, get_owner_id
 
 saved_search_bp = Blueprint("saved_search", __name__)
 
@@ -37,18 +35,9 @@ def _clean_params(raw):
 
 
 def _current_owner():
-    """Return the logged-in Owner when a valid owner JWT is present."""
-    try:
-        verify_jwt_in_request(optional=True)
-        ident = get_jwt_identity()
-    except Exception:
-        return None
-    if ident and str(ident).startswith("owner:"):
-        try:
-            return Owner.query.get(int(str(ident).split(":", 1)[1]))
-        except (ValueError, TypeError):
-            return None
-    return None
+    """Return the logged-in Owner when a valid owner session is present."""
+    owner_id = get_owner_id()
+    return Owner.query.get(owner_id) if owner_id else None
 
 
 def _serialize(saved):
@@ -103,14 +92,9 @@ def create_saved_search():
 
 
 @saved_search_bp.route("/saved-searches", methods=["GET"])
-@jwt_required()
 def list_saved_searches():
-    ident = str(get_jwt_identity() or "")
-    if not ident.startswith("owner:"):
-        return jsonify({"error": "Owner login required"}), 401
-    try:
-        owner_id = int(ident.split(":", 1)[1])
-    except (ValueError, TypeError):
+    owner_id = get_owner_id()
+    if not owner_id:
         return jsonify({"error": "Owner login required"}), 401
     rows = SavedSearch.query.filter_by(owner_id=owner_id).order_by(
         SavedSearch.created_at.desc()
@@ -119,14 +103,10 @@ def list_saved_searches():
 
 
 @saved_search_bp.route("/saved-searches/<int:id>", methods=["DELETE"])
-@jwt_required()
 def delete_saved_search(id):
-    ident = str(get_jwt_identity() or "")
-    if not ident.startswith("owner:"):
-        return jsonify({"error": "Owner login required"}), 401
-    try:
-        owner_id = int(ident.split(":", 1)[1])
-    except (ValueError, TypeError):
+    payload = load_owner_payload()
+    owner_id = get_owner_id()
+    if not payload or not owner_id or not owner_csrf_ok(payload):
         return jsonify({"error": "Owner login required"}), 401
     saved = SavedSearch.query.get(id)
     if not saved or saved.owner_id != owner_id:
