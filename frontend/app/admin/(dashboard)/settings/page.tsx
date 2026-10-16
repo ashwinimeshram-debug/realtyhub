@@ -89,6 +89,10 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [aiModels, setAiModels] = useState<{ id: string; label: string }[]>([]);
+  const [aiModelsLoading, setAiModelsLoading] = useState(false);
+  const [aiModelsError, setAiModelsError] = useState("");
+  const [aiDefaultModel, setAiDefaultModel] = useState("");
 
   useEffect(() => {
     API.get("/admin/settings")
@@ -132,6 +136,28 @@ export default function SettingsPage() {
       setAiTestResult({ ok: false, message: d?.error || "AI test failed." });
     }
     setAiTesting(false);
+  };
+
+  const handleLoadModels = async () => {
+    setAiModelsLoading(true);
+    setAiModelsError("");
+    setAiModels([]);
+    try {
+      const res = await API.post("/ai/models", {
+        provider: settings.ai_provider || "openai",
+        api_key: settings.ai_api_key || "",
+      });
+      const d = res.data || {};
+      setAiModels(d.models || []);
+      setAiDefaultModel(d.default || "");
+      if (!d.models || d.models.length === 0) {
+        setAiModelsError("No usable models were returned for this key.");
+      }
+    } catch (err: any) {
+      const d = err?.response?.data;
+      setAiModelsError(d?.error || "Failed to load models.");
+    }
+    setAiModelsLoading(false);
   };
 
   if (loading) return <div className="p-3 md:p-6">Loading...</div>;
@@ -841,8 +867,9 @@ export default function SettingsPage() {
       <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("ai") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">AI Configuration</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-4">
-          Powers the &ldquo;Generate with AI&rdquo; button in the listing forms. Add an API key from
-          OpenAI or Anthropic. Without a key, listing copy falls back to a built-in template.
+          Powers the &ldquo;Generate with AI&rdquo; button in the listing forms. Connect OpenAI
+          (ChatGPT), Anthropic (Claude) or Google (Gemini) using your own API key. Without a key,
+          listing copy falls back to a built-in template.
         </p>
 
         <label className="flex items-center gap-2 mb-4">
@@ -860,23 +887,66 @@ export default function SettingsPage() {
             <span className="text-sm text-gray-700 font-medium">Provider</span>
             <select
               value={settings.ai_provider || "openai"}
-              onChange={(e) => handleChange("ai_provider", e.target.value)}
+              onChange={(e) => {
+                handleChange("ai_provider", e.target.value);
+                setAiModels([]);
+                setAiModelsError("");
+                setAiTestResult(null);
+              }}
               className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
             >
-              <option value="openai">OpenAI</option>
+              <option value="openai">OpenAI (ChatGPT)</option>
               <option value="anthropic">Anthropic (Claude)</option>
+              <option value="gemini">Google (Gemini)</option>
             </select>
           </label>
           <label className="block">
             <span className="text-sm text-gray-700 font-medium">Model</span>
-            <input
-              type="text"
-              value={settings.ai_model || ""}
-              onChange={(e) => handleChange("ai_model", e.target.value)}
-              placeholder={settings.ai_provider === "anthropic" ? "claude-3-5-haiku-latest" : "gpt-4o-mini"}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            />
-            <p className="text-xs text-gray-500 mt-1">Leave blank to use the provider default.</p>
+            <div className="mt-1 flex gap-2">
+              {aiModels.length > 0 ? (
+                <select
+                  value={settings.ai_model || ""}
+                  onChange={(e) => handleChange("ai_model", e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">Default ({aiDefaultModel || "provider default"})</option>
+                  {aiModels.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={settings.ai_model || ""}
+                  onChange={(e) => handleChange("ai_model", e.target.value)}
+                  placeholder={
+                    settings.ai_provider === "anthropic"
+                      ? "claude-3-5-haiku-latest"
+                      : settings.ai_provider === "gemini"
+                      ? "gemini-2.5-flash"
+                      : "gpt-4o-mini"
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+              )}
+              <button
+                type="button"
+                onClick={handleLoadModels}
+                disabled={aiModelsLoading}
+                className="shrink-0 px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {aiModelsLoading ? "Loading..." : "Load models"}
+              </button>
+            </div>
+            {aiModelsError ? (
+              <p className="text-xs text-red-600 mt-1">{aiModelsError}</p>
+            ) : (
+              <p className="text-xs text-gray-500 mt-1">
+                {aiModels.length > 0
+                  ? `${aiModels.length} models available — pick one, or leave on default.`
+                  : "Type a model name, or load the models your key can access."}
+              </p>
+            )}
           </label>
         </div>
 
@@ -887,7 +957,15 @@ export default function SettingsPage() {
             autoComplete="new-password"
             value={settings.ai_api_key || ""}
             onChange={(e) => handleChange("ai_api_key", e.target.value)}
-            placeholder={settings.ai_api_key_set ? "•••••••• (saved — leave blank to keep)" : "sk-..."}
+            placeholder={
+              settings.ai_api_key_set
+                ? "•••••••• (saved — leave blank to keep)"
+                : settings.ai_provider === "gemini"
+                ? "AIza..."
+                : settings.ai_provider === "anthropic"
+                ? "sk-ant-..."
+                : "sk-..."
+            }
             className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
           />
           <p className="text-xs text-gray-500 mt-1">
