@@ -4,8 +4,10 @@ Generates a listing title + description from the property form inputs.
 
 The endpoint always works: when no AI provider key is configured it falls back
 to a deterministic local composition, so the "Generate with AI" button in the
-post form is useful today. Add one of these to the backend env to activate the
-real provider:
+post form is useful today.
+
+Configure the provider from the admin UI (Settings -> AI Configuration), or via
+one of these environment variables:
 
     AI_PROVIDER=openai     AI_API_KEY=sk-...
     AI_PROVIDER=anthropic  AI_API_KEY=sk-ant-...
@@ -30,19 +32,44 @@ ai_bp = Blueprint("ai", __name__)
 
 _OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-_OPENAI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
-_ANTHROPIC_MODEL = os.getenv("AI_MODEL", "claude-3-5-haiku-latest")
+_DEFAULT_MODELS = {"openai": "gpt-4o-mini", "anthropic": "claude-3-5-haiku-latest"}
 
 _TXN_LABELS = {"buy": "Buy", "rent": "Rent", "resale": "Resale", "sell": "Sale"}
 _LISTED_BY_LABELS = {"owner": "Owner", "agent": "Agent", "broker": "Broker"}
 
 
+def _db_setting(key, default=None):
+    """Read an admin-configured setting from the DB, ignoring blank values."""
+    try:
+        from routes.settings_routes import get_all_settings
+        val = get_all_settings().get(key)
+    except Exception:
+        val = None
+    if val is None or str(val).strip() == "":
+        return default
+    return str(val).strip()
+
+
+def _ai_enabled():
+    """AI is on unless an admin explicitly disabled it (env-only setups stay on)."""
+    val = _db_setting("ai_enabled")
+    if val is None:
+        return True
+    return val.lower() not in ("false", "0", "no", "off")
+
+
 def _provider_config():
-    """Return (provider, api_key) if an AI provider is configured, else (None, None)."""
-    provider = (os.getenv("AI_PROVIDER") or "").strip().lower()
-    key = (os.getenv("AI_API_KEY") or "").strip()
+    """Return (provider, api_key) from admin settings (env fallback), else (None, None)."""
+    if not _ai_enabled():
+        return None, None
+    provider = (_db_setting("ai_provider") or os.getenv("AI_PROVIDER") or "").strip().lower()
+    key = (_db_setting("ai_api_key") or os.getenv("AI_API_KEY") or "").strip()
     if not provider:
-        if os.getenv("OPENAI_API_KEY"):
+        if key.startswith("sk-ant"):
+            provider = "anthropic"
+        elif key.startswith("sk-"):
+            provider = "openai"
+        elif os.getenv("OPENAI_API_KEY"):
             provider = "openai"
         elif os.getenv("ANTHROPIC_API_KEY"):
             provider = "anthropic"
@@ -54,6 +81,11 @@ def _provider_config():
     if provider in ("openai", "anthropic") and key:
         return provider, key
     return None, None
+
+
+def _model_for(provider):
+    """Resolve the model to use, preferring the admin setting over the env default."""
+    return _db_setting("ai_model") or os.getenv("AI_MODEL") or _DEFAULT_MODELS.get(provider, "")
 
 
 def _build_prompt(payload):
@@ -83,9 +115,9 @@ def _build_prompt(payload):
     )
 
 
-def _call_openai(api_key, prompt):
+def _call_openai(api_key, prompt, model):
     body = json.dumps({
-        "model": _OPENAI_MODEL,
+        "model": model,
         "messages": [
             {"role": "system", "content": "You are a helpful real-estate copywriter."},
             {"role": "user", "content": prompt},
@@ -103,9 +135,9 @@ def _call_openai(api_key, prompt):
     return data["choices"][0]["message"]["content"]
 
 
-def _call_anthropic(api_key, prompt):
+def _call_anthropic(api_key, prompt, model):
     body = json.dumps({
-        "model": _ANTHROPIC_MODEL,
+        "model": model,
         "max_tokens": 700,
         "messages": [{"role": "user", "content": prompt}],
     }).encode("utf-8")
@@ -188,9 +220,10 @@ def generate_listing():
     provider, api_key = _provider_config()
 
     if provider:
+        model = _model_for(provider)
         try:
-            raw = _call_openai(api_key, _build_prompt(payload)) if provider == "openai" \
-                else _call_anthropic(api_key, _build_prompt(payload))
+            raw = _call_openai(api_key, _build_prompt(payload), model) if provider == "openai" \
+                else _call_anthropic(api_key, _build_prompt(payload), model)
             parsed = _parse_model_json(raw)
             if parsed:
                 return jsonify({
@@ -203,3 +236,29 @@ def generate_listing():
             logger.warning("AI generation fell back to local compose: %s", exc)
 
     return jsonify({**_compose_locally(payload), "ai_enabled": False, "provider": None})
+
+
+@ai_bp.route("/ai/test", methods=["POST"])
+@jwt_required()
+@limiter.limit("30/hour")
+def test_ai():
+    """Verify the configured AI provider/key by issuing a tiny request."""
+    provider, api_key = _provider_config()
+    if not provider:
+        return jsonify({"ok": False, "error": "No AI provider configured. Add an API key and enable AI."})
+    model = _model_for(provider)
+    prompt = 'Return ONLY JSON: {"title":"OK","description":"Connection successful."}'
+    try:
+        raw = _call_openai(api_key, prompt, model) if provider == "openai" \
+            else _call_anthropic(api_key, prompt, model)
+        return jsonify({"ok": True, "provider": provider, "model": model, "sample": (raw or "")[:200]})
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8")[:300]
+        except Exception:
+            detail = ""
+        return jsonify({"ok": False, "provider": provider, "model": model,
+                        "error": f"Provider returned HTTP {exc.code}. {detail}".strip()})
+    except (urllib.error.URLError, ValueError, KeyError, TimeoutError) as exc:
+        return jsonify({"ok": False, "provider": provider, "model": model, "error": str(exc)})

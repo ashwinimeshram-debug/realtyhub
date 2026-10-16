@@ -57,16 +57,18 @@ def public_get_settings():
 
 
 SECRET_SETTING_KEYS = {"mail_password", "whatsapp_access_token", "twilio_auth_token",
-                       "payment_key_secret", "payment_webhook_secret"}
+                       "payment_key_secret", "payment_webhook_secret", "ai_api_key"}
 
 
 @settings_bp.route("/admin/settings", methods=["GET"])
 @jwt_required()
 def admin_get_settings():
-    data = dict(get_all_settings())
+    all_settings = get_all_settings()
+    data = dict(all_settings)
     for key in SECRET_SETTING_KEYS:
         if key in data:
             data[key] = ""
+    data["ai_api_key_set"] = bool(all_settings.get("ai_api_key"))
     return jsonify(data)
 
 
@@ -111,6 +113,8 @@ def admin_update_settings():
         "share_caption_template",
         "seo_google_verification", "seo_bing_verification", "seo_default_description",
         "rera_license",
+        # AI copy generation
+        "ai_enabled", "ai_provider", "ai_model", "ai_api_key",
     }
     ACCEPTED = KNOWN_SETTINGS | MAIL_SETTING_KEYS | WHATSAPP_SETTING_KEYS
     SECTION_HEADER_RE = _re.compile(r"^section_[a-z0-9_]+_(title|subtitle|align)$")

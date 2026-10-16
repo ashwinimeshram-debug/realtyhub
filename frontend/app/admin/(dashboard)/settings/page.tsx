@@ -5,7 +5,7 @@ import API, { backendAssetUrl } from "@/lib/api";
 import GalleryPicker from "@/components/admin/GalleryPicker";
 import { useToast } from "@/components/Toast";
 
-type TabKey = "general" | "seo" | "security" | "messaging" | "automation" | "payments";
+type TabKey = "general" | "seo" | "messaging" | "payments" | "automation" | "ai" | "security";
 
 const TABS: { key: TabKey; label: string; hint: string; icon: React.ReactNode }[] = [
   {
@@ -59,6 +59,16 @@ const TABS: { key: TabKey; label: string; hint: string; icon: React.ReactNode }[
     ),
   },
   {
+    key: "ai",
+    label: "AI Configuration",
+    hint: "Connect an AI provider for listing copy generation",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.36-6.36l-1.42 1.42M7.05 16.95l-1.41 1.41m12.72 0l-1.42-1.41M7.05 7.05L5.64 5.64M12 8a4 4 0 100 8 4 4 0 000-8z" />
+      </svg>
+    ),
+  },
+  {
     key: "security",
     label: "Security & Data",
     hint: "Admin session timeout and DPDP data retention",
@@ -77,6 +87,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("general");
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     API.get("/admin/settings")
@@ -101,6 +113,25 @@ export default function SettingsPage() {
       toast("Failed to save settings", "error");
     }
     setSaving(false);
+  };
+
+  const handleTestAi = async () => {
+    setAiTesting(true);
+    setAiTestResult(null);
+    try {
+      const res = await API.post("/ai/test", {});
+      const d = res.data || {};
+      setAiTestResult({
+        ok: !!d.ok,
+        message: d.ok
+          ? `Connection successful — ${d.provider} (${d.model}).`
+          : d.error || "AI test failed.",
+      });
+    } catch (err: any) {
+      const d = err?.response?.data;
+      setAiTestResult({ ok: false, message: d?.error || "AI test failed." });
+    }
+    setAiTesting(false);
   };
 
   if (loading) return <div className="p-3 md:p-6">Loading...</div>;
@@ -804,6 +835,84 @@ export default function SettingsPage() {
             </>
           )}
         </div>
+      </div>
+
+      {/* AI CONFIGURATION */}
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("ai") ? "" : "hidden"}`}>
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">AI Configuration</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-4">
+          Powers the &ldquo;Generate with AI&rdquo; button in the listing forms. Add an API key from
+          OpenAI or Anthropic. Without a key, listing copy falls back to a built-in template.
+        </p>
+
+        <label className="flex items-center gap-2 mb-4">
+          <input
+            type="checkbox"
+            checked={settings.ai_enabled !== "false"}
+            onChange={(e) => handleChange("ai_enabled", e.target.checked ? "true" : "false")}
+            className="h-4 w-4"
+          />
+          <span className="text-sm text-gray-700 font-medium">Enable AI copy generation</span>
+        </label>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <label className="block">
+            <span className="text-sm text-gray-700 font-medium">Provider</span>
+            <select
+              value={settings.ai_provider || "openai"}
+              onChange={(e) => handleChange("ai_provider", e.target.value)}
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            >
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm text-gray-700 font-medium">Model</span>
+            <input
+              type="text"
+              value={settings.ai_model || ""}
+              onChange={(e) => handleChange("ai_model", e.target.value)}
+              placeholder={settings.ai_provider === "anthropic" ? "claude-3-5-haiku-latest" : "gpt-4o-mini"}
+              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">Leave blank to use the provider default.</p>
+          </label>
+        </div>
+
+        <label className="block mb-4">
+          <span className="text-sm text-gray-700 font-medium">API Key</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={settings.ai_api_key || ""}
+            onChange={(e) => handleChange("ai_api_key", e.target.value)}
+            placeholder={settings.ai_api_key_set ? "•••••••• (saved — leave blank to keep)" : "sk-..."}
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Stored securely on the server and never shown again. Leave blank to keep the current key.
+          </p>
+        </label>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleTestAi}
+            disabled={aiTesting}
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {aiTesting ? "Testing..." : "Test AI Connection"}
+          </button>
+          {aiTestResult && (
+            <span className={`text-sm ${aiTestResult.ok ? "text-green-600" : "text-red-600"}`}>
+              {aiTestResult.message}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-3">
+          Tip: click &ldquo;Save Settings&rdquo; before testing so the latest key is used.
+        </p>
       </div>
 
       {/* DATA & PRIVACY */}
