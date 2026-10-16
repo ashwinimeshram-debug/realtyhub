@@ -471,6 +471,19 @@ export default function AddPropertyPage() {
             </div>
 
             <div className="mb-6">
+              <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>
+                RERA Details <span className="text-xs font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span>
+              </label>
+              <input
+                className={inputClass}
+                disabled={isDisabled}
+                placeholder="e.g. RERA Reg. No. P50500012345"
+                value={form.rera_details || ""}
+                onChange={(e) => setForm({ ...form, rera_details: e.target.value })}
+              />
+            </div>
+
+            <div className="mb-6">
               <GeoPicker
                 latitude={form.latitude || ""}
                 longitude={form.longitude || ""}

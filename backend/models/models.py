@@ -12,6 +12,7 @@ class Property(db.Model):
     transaction_type = db.Column(db.String(20))
     property_type = db.Column(db.String(50), nullable=False, default="flat")
     listed_by = db.Column(db.String(20), default="owner")
+    rera_details = db.Column(db.String(255), nullable=True)
     price = db.Column(db.Numeric(12, 2))
     price_text = db.Column(db.String(50), default="*")
     location = db.Column(db.String(255), nullable=False)

@@ -5,12 +5,78 @@ import API, { backendAssetUrl } from "@/lib/api";
 import GalleryPicker from "@/components/admin/GalleryPicker";
 import { useToast } from "@/components/Toast";
 
+type TabKey = "general" | "seo" | "security" | "messaging" | "automation" | "payments";
+
+const TABS: { key: TabKey; label: string; hint: string; icon: React.ReactNode }[] = [
+  {
+    key: "general",
+    label: "General",
+    hint: "Site identity, brand colors, social links and location tags",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    ),
+  },
+  {
+    key: "seo",
+    label: "SEO",
+    hint: "Search metadata, verification and share caption",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+      </svg>
+    ),
+  },
+  {
+    key: "messaging",
+    label: "Email & Messaging",
+    hint: "SMTP email and WhatsApp sending",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
+    key: "payments",
+    label: "Listings & Payments",
+    hint: "Paid listing prices, validity and payment gateway",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
+    key: "automation",
+    label: "Automation",
+    hint: "Automatic lead and listing workflows",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+  },
+  {
+    key: "security",
+    label: "Security & Data",
+    hint: "Admin session timeout and DPDP data retention",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z" />
+      </svg>
+    ),
+  },
+];
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>("general");
 
   useEffect(() => {
     API.get("/admin/settings")
@@ -39,13 +105,40 @@ export default function SettingsPage() {
 
   if (loading) return <div className="p-3 md:p-6">Loading...</div>;
 
+  const show = (tab: TabKey) => activeTab === tab;
+  const activeTabMeta = TABS.find((t) => t.key === activeTab);
+
   return (
     <div className="p-3 md:p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-800">Settings</h1>
-      <p className="text-sm text-gray-500 mt-1 mb-4 md:mb-6">Configure site name, logo, brand colors, social links, session, and email sending</p>
+      <p className="text-sm text-gray-500 mt-1 mb-4">
+        {activeTabMeta?.hint || "Configure your website"}
+      </p>
+
+      {/* TAB NAVIGATION */}
+      <div className="flex flex-wrap gap-2 mb-5 md:mb-6">
+        {TABS.map((tab) => {
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition ${
+                active
+                  ? "bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm"
+                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-800"
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* GENERAL */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("general") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">General</h2>
 
         <div className="mb-4">
@@ -85,7 +178,7 @@ export default function SettingsPage() {
       </div>
 
       {/* COLORS */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("general") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Brand Colors</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -134,7 +227,7 @@ export default function SettingsPage() {
       </div>
 
       {/* SOCIAL LINKS */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("general") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Social Media Links</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">These will be displayed in the footer. Leave blank to hide.</p>
 
@@ -163,7 +256,7 @@ export default function SettingsPage() {
       </div>
 
       {/* LOCATION TAGS VISIBILITY */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("general") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Location Tags</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">Show location chips above the footer on all public pages.</p>
         <label className="flex items-center gap-3 cursor-pointer">
@@ -185,7 +278,7 @@ export default function SettingsPage() {
       </div>
 
       {/* SEO & VERIFICATION */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("seo") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">SEO &amp; Verification</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-4">
           Optional identifiers used in structured data and search engine verification tags.
@@ -238,7 +331,7 @@ export default function SettingsPage() {
       </div>
 
       {/* SOCIAL SHARE CAPTION */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("seo") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Social Share Caption</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
           {"Default caption used when sharing a property. Use {title}, {price}, {location} and {url} as placeholders. Leave blank to use the default wording."}
@@ -253,7 +346,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ADMIN SESSION */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("security") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Admin Session</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">Configure how long an admin session stays active before auto-logout due to inactivity.</p>
 
@@ -306,7 +399,7 @@ export default function SettingsPage() {
       </div>
 
       {/* EMAIL (SMTP) */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("messaging") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Email (SMTP)</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
           Used for sending password resets and owner/visitor notifications. For Gmail, use an
@@ -404,7 +497,7 @@ export default function SettingsPage() {
       </div>
 
       {/* WHATSAPP */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("messaging") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">WhatsApp Messaging</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
           Send lead and saved-search alerts over WhatsApp. Choose a provider and enter its
@@ -523,7 +616,7 @@ export default function SettingsPage() {
       </div>
 
       {/* AUTOMATION */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("automation") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Automation</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
           Control automatic workflows for new leads and property listings.
@@ -589,7 +682,7 @@ export default function SettingsPage() {
       </div>
 
       {/* LISTINGS & PAYMENTS */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("payments") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Listings &amp; Payments</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
           Control paid listing publication, prices, validity periods and the payment gateway.
@@ -714,7 +807,7 @@ export default function SettingsPage() {
       </div>
 
       {/* DATA & PRIVACY */}
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+      <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("security") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Data &amp; Privacy</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
           DPDP data retention. The scheduled cleanup job anonymizes or deletes personal

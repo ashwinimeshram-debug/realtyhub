@@ -385,6 +385,7 @@ def get_property(id):
         "transaction_type": prop.transaction_type,
         "property_type": prop.property_type,
         "listed_by": prop.listed_by or "owner",
+        "rera_details": prop.rera_details or None,
         "overview_template_id": prop.overview_template_id,
         "closing_template_id": prop.closing_template_id,
         "title_template_id": prop.title_template_id,
@@ -457,6 +458,7 @@ def create_property():
         transaction_type=data.get("transaction_type", "sell"),
         property_type=data.get("property_type", "flat"),
         listed_by=data.get("listed_by") if data.get("listed_by") in VALID_LISTED_BY else "owner",
+        rera_details=(data.get("rera_details") or "").strip() or None,
         status="approved" if approved_now else "pending",
         is_active=approved_now,
         is_verified=True if creator_is_admin else False,
@@ -578,6 +580,8 @@ def update_property(id):
         if val not in VALID_LISTED_BY:
             return jsonify({"error": f"Invalid listed_by. Must be one of: {', '.join(VALID_LISTED_BY)}"}), 400
         prop.listed_by = val
+    if "rera_details" in data:
+        prop.rera_details = (data.get("rera_details") or "").strip() or None
 
     _changed_status = "status" in data
     _changed_featured = "is_featured" in data

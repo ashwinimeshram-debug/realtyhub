@@ -179,6 +179,7 @@ export default function PropertyDetail() {
         transaction_type: p.transaction_type || "",
         property_type: p.property_type || "",
         listed_by: p.listed_by || "owner",
+        rera_details: p.rera_details || "",
         location: p.location || "",
         price: p.price != null && Number(p.price) > 0 ? String(p.price) : "",
         price_text: p.price_text || "*",
@@ -569,6 +570,19 @@ export default function PropertyDetail() {
                   disabled={isDisabled}
                 />
               </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>
+                RERA Details <span className="text-xs font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span>
+              </label>
+              <input
+                className={inputClass}
+                disabled={isDisabled}
+                placeholder="e.g. RERA Reg. No. P50500012345"
+                value={form.rera_details || ""}
+                onChange={(e) => setForm({ ...form, rera_details: e.target.value })}
+              />
             </div>
 
             {/* Section 5: Property Owner Contact */}

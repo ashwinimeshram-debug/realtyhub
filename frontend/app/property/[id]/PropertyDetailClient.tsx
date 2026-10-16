@@ -171,6 +171,9 @@ export default function PropertyDetailClient({
               {property.listed_by && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium capitalize">Listed by {property.listed_by}</span>
               )}
+              {property.rera_details && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">RERA: {property.rera_details}</span>
+              )}
             </div>
 
             <ShareButtons

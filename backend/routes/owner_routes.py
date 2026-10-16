@@ -369,6 +369,7 @@ def my_properties():
             "transaction_type": p.transaction_type,
             "property_type": p.property_type,
             "listed_by": p.listed_by or "owner",
+            "rera_details": p.rera_details or None,
             "image": first_image,
             "lead_count": lead_counts.get(p.id, 0),
             "created_at": p.created_at.isoformat() if p.created_at else None,
@@ -410,6 +411,7 @@ def my_property(id):
         "transaction_type": prop.transaction_type,
         "property_type": prop.property_type,
         "listed_by": prop.listed_by or "owner",
+        "rera_details": prop.rera_details or None,
         "status": prop.status,
         "is_active": bool(prop.is_active),
         "is_closed": bool(prop.is_closed),
@@ -496,6 +498,8 @@ def update_my_property(id):
         if listed_by not in VALID_LISTED_BY:
             return jsonify({"error": "Invalid listed by"}), 400
         prop.listed_by = listed_by
+    if "rera_details" in data:
+        prop.rera_details = (data.get("rera_details") or "").strip() or None
 
     if "price" in data:
         price_text = (data.get("price_text") or "").strip() or "*"
