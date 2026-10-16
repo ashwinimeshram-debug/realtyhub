@@ -163,6 +163,7 @@ export default function PropertiesListPage() {
               <tr>
                 <th onClick={() => handleSort("id")} className="p-3 text-gray-500 font-medium cursor-pointer hover:text-gray-700 text-center"># {sortArrow("id")}</th>
                 <th onClick={() => handleSort("title")} className="p-3 text-gray-500 font-medium cursor-pointer hover:text-gray-700 text-center">Title {sortArrow("title")}</th>
+                <th onClick={() => handleSort("is_featured")} className="p-3 text-gray-500 font-medium cursor-pointer hover:text-gray-700 text-center hidden md:table-cell">Featured {sortArrow("is_featured")}</th>
                 <th onClick={() => handleSort("status")} className="p-3 text-gray-500 font-medium cursor-pointer hover:text-gray-700 text-center">Status {sortArrow("status")}</th>
                 <th onClick={() => handleSort("owner_name")} className="p-3 text-gray-500 font-medium cursor-pointer hover:text-gray-700 text-center hidden md:table-cell">Owners {sortArrow("owner_name")}</th>
                 <th onClick={() => handleSort("created_at")} className="p-3 text-gray-500 font-medium cursor-pointer hover:text-gray-700 text-center hidden lg:table-cell">Created {sortArrow("created_at")}</th>
@@ -206,6 +207,9 @@ export default function PropertiesListPage() {
                           <Link href={`/admin/properties/${encodePropertyId(property.id)}`} className="text-[var(--primary)] hover:underline font-medium">
                             {property.title}
                           </Link>
+                        </td>
+                        <td className="p-3 text-gray-600 hidden md:table-cell text-xs">
+                          {property.is_featured ? "Yes" : "No"}
                         </td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${

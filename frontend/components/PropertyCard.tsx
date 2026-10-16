@@ -8,8 +8,11 @@ export default function PropertyCard({ p, ctx }: { p: any; ctx?: string }) {
     <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition flex flex-col">
 
       {/* IMAGE */}
-      <div className="h-[180px]">
+      <div className="h-[180px] relative">
         <ImageSlider images={p.images} alt={`${p.title} in ${p.location}`} small />
+        {p.is_featured && (
+          <span className="absolute top-2 left-2 bg-yellow-400 text-xs px-2 py-1 rounded font-medium shadow-sm">Featured</span>
+        )}
       </div>
 
       {/* CONTENT */}

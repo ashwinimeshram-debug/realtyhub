@@ -135,7 +135,7 @@ export default function PropertiesClient({
               <option value="newest">Newest First</option>
               <option value="price_asc">Price: Low to High</option>
               <option value="price_desc">Price: High to Low</option>
-              <option value="featured">Featured First</option>
+              <option value="featured">Featured</option>
             </select>
           </div>
         </div>

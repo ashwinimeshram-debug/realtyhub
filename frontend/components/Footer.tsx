@@ -71,7 +71,8 @@ export default function Footer() {
 
           {/* Left — Copyright */}
           <div className="text-sm text-white/70 text-center md:text-left">
-            &copy; {new Date().getFullYear()} {settings.site_name || "Realty Hub"}. All rights reserved.
+            <p>&copy; {new Date().getFullYear()} {settings.site_name || "Realty Hub"}. All rights reserved.</p>
+            <p className="mt-1 text-xs text-white/50">Powered By Sumati Enterprises</p>
           </div>
 
           {/* Center — Social */}
