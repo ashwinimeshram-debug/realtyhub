@@ -29,6 +29,7 @@ export default function SavedSearchAlertButton({ query }: { query: string }) {
 
   const [open, setOpen] = useState(false);
   const [filters, setFilters] = useState<FilterState>(EMPTY);
+  const [showOtherArea, setShowOtherArea] = useState(false);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
@@ -57,6 +58,7 @@ export default function SavedSearchAlertButton({ query }: { query: string }) {
     setPhone((prev) => prev || owner?.mobile || "");
     setDone(false);
     setError("");
+    setShowOtherArea(false);
   }, [open, query, owner]);
 
   const hasAnyFilter = useMemo(
@@ -66,6 +68,20 @@ export default function SavedSearchAlertButton({ query }: { query: string }) {
 
   const set = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
+
+  // The "Other" area mode is active when explicitly chosen, or when the seeded
+  // location isn't one of the known areas.
+  const locationInList = locations.some((l) => l.name === filters.location);
+  const isOtherArea = showOtherArea || (!!filters.location.trim() && !locationInList);
+  const onAreaChange = (value: string) => {
+    if (value === "__other__") {
+      setShowOtherArea(true);
+      set("location", "");
+    } else {
+      setShowOtherArea(false);
+      set("location", value);
+    }
+  };
 
   const buildName = () => {
     const parts: string[] = [];
@@ -85,6 +101,10 @@ export default function SavedSearchAlertButton({ query }: { query: string }) {
 
   const submit = async () => {
     setError("");
+    if (showOtherArea && !filters.location.trim()) {
+      setError("Please type the area name you're looking for.");
+      return;
+    }
     if (!hasAnyFilter) {
       setError("Please set at least one filter (area, type or budget).");
       return;
@@ -169,7 +189,7 @@ export default function SavedSearchAlertButton({ query }: { query: string }) {
                   <div>
                     <label className={labelCls}>I&apos;m looking to</label>
                     <select className={inputCls} value={filters.type} onChange={(e) => set("type", e.target.value)}>
-                      <option value="">Buy or Rent</option>
+                      <option value="">Buy, Sell, Rent or Resale</option>
                       {transactionTypes.map((t) => (
                         <option key={t.value} value={t.value}>{t.name}</option>
                       ))}
@@ -186,12 +206,23 @@ export default function SavedSearchAlertButton({ query }: { query: string }) {
                   </div>
                   <div className="sm:col-span-2">
                     <label className={labelCls}>Area / locality</label>
-                    <select className={inputCls} value={filters.location} onChange={(e) => set("location", e.target.value)}>
+                    <select className={inputCls} value={isOtherArea ? "__other__" : filters.location} onChange={(e) => onAreaChange(e.target.value)}>
                       <option value="">Any area</option>
                       {locations.map((loc) => (
-                        <option key={loc.name} value={loc.name}>{loc.name} ({loc.count})</option>
+                        <option key={loc.name} value={loc.name}>{loc.name}{loc.count > 0 ? ` (${loc.count})` : ""}</option>
                       ))}
+                      <option value="__other__">Other (type your area)</option>
                     </select>
+                    {isOtherArea && (
+                      <input
+                        type="text"
+                        className={`${inputCls} mt-2`}
+                        placeholder="Type the area / locality name"
+                        maxLength={80}
+                        value={filters.location}
+                        onChange={(e) => set("location", e.target.value)}
+                      />
+                    )}
                   </div>
                   <div>
                     <label className={labelCls}>Min budget</label>

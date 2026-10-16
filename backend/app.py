@@ -75,7 +75,8 @@ def create_app():
 
     @app.route("/")
     def home():
-        return "Nagpur Realty Hub API is Running"
+        from utils.mailer import get_site_name
+        return f"{get_site_name()} API is Running"
 
     @app.route("/uploads/<path:filename>")
     def uploaded_file(filename):
@@ -121,6 +122,8 @@ def _register_blueprints(app):
     from routes.owner_routes import owner_bp
     from routes.cron_routes import cron_bp
     from routes.saved_search_routes import saved_search_bp
+    from routes.payments_routes import payments_bp
+    from routes.ai_routes import ai_bp
 
     app.register_blueprint(public_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -138,6 +141,8 @@ def _register_blueprints(app):
     app.register_blueprint(team_bp, url_prefix="/api")
     app.register_blueprint(owner_bp, url_prefix="/api/owner")
     app.register_blueprint(saved_search_bp, url_prefix="/api")
+    app.register_blueprint(payments_bp, url_prefix="/api/payments")
+    app.register_blueprint(ai_bp, url_prefix="/api")
 
 
 def _register_error_handlers(app):
@@ -238,23 +243,21 @@ def _seed_defaults():
             db.session.add(PropertyType(name=name, value=value, category=cat, sort_order=order))
 
         transaction_types = [
-            ("Sell", "sell", "transaction", 1), ("Rent", "rent", "transaction", 2),
+            ("Buy", "buy", "transaction", 1), ("Sell", "sell", "transaction", 2),
+            ("Rent", "rent", "transaction", 3), ("Resale", "resale", "transaction", 4),
         ]
         for name, value, cat, order in transaction_types:
             db.session.add(PropertyType(name=name, value=value, category=cat, sort_order=order))
     else:
-        PropertyType.query.filter(PropertyType.value == "buy", PropertyType.category == "transaction").delete(synchronize_session=False)
-        from sqlalchemy import text
-        for val, name in [("sell", "Sell"), ("rent", "Rent")]:
+        for val, name, order in [
+            ("buy", "Buy", 1), ("sell", "Sell", 2), ("rent", "Rent", 3), ("resale", "Resale", 4),
+        ]:
             existing = PropertyType.query.filter_by(value=val, category="transaction").first()
             if not existing:
-                max_order = db.session.query(db.func.max(PropertyType.sort_order)).filter_by(category="transaction").scalar() or 0
-                db.session.add(PropertyType(name=name, value=val, category="transaction", sort_order=max_order + 1))
+                db.session.add(PropertyType(name=name, value=val, category="transaction", sort_order=order))
             else:
-                try:
-                    db.session.execute(text(f"UPDATE property_types SET name='{name}' WHERE value='{val}' AND category='transaction'"))
-                except Exception:
-                    pass
+                existing.name = name
+                existing.sort_order = order
 
     if LeadStatus.query.count() == 0:
         default_statuses = [
@@ -287,6 +290,7 @@ def _seed_defaults():
 
     _seed_page_settings()
     _seed_mail_settings()
+    _seed_lifecycle_settings()
 
     db.session.commit()
 
@@ -476,6 +480,30 @@ def _seed_mail_settings():
         "mail_password": os.getenv("MAIL_PASSWORD", ""),
         "mail_sender": os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com"),
         "mail_use_tls": "true",
+    }
+    for key, value in defaults.items():
+        if not Setting.query.filter_by(skey=key).first():
+            db.session.add(Setting(skey=key, svalue=value))
+
+
+def _seed_lifecycle_settings():
+    """Seed default paid-listing lifecycle and payment settings (first boot only)."""
+    from models.setting_model import Setting
+
+    defaults = {
+        "require_listing_payment": "false",   # free-listing bypass on by default
+        "listing_sell_price": "999",
+        "listing_sell_days": "90",
+        "listing_rent_price": "499",
+        "listing_rent_days": "30",
+        "featured_price": "299",
+        "featured_days": "30",
+        "section_featured_count": "20",
+        "section_featured_split": "8",
+        "listing_grace_days": "7",
+        "listing_expiry_reminder_days": "15,7,3,1",
+        "payment_provider": "mock",
+        "payment_currency": "INR",
     }
     for key, value in defaults.items():
         if not Setting.query.filter_by(skey=key).first():

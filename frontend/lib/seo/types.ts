@@ -34,6 +34,7 @@ export interface SeoProperty {
   longitude?: number | null;
   transaction_type?: string | null;
   property_type?: string | null;
+  listed_by?: string | null;
   is_featured?: boolean;
   is_verified?: boolean;
   images?: string[];

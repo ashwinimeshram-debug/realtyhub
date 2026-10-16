@@ -60,6 +60,7 @@ function getSourceBadge(source: string) {
 
 interface Lead {
   id: number;
+  locked?: boolean;
   name: string;
   email: string | null;
   mobile: string | null;
@@ -319,6 +320,14 @@ function PipelineView({
   );
 }
 
+function LockedBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-medium bg-gray-100 text-gray-600 border border-gray-200">
+      🔒 Locked
+    </span>
+  );
+}
+
 function PipelineCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: lead.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -335,8 +344,13 @@ function PipelineCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
         badge.border ? `border ${badge.border}` : ""
       }`}
     >
-      <p className="font-medium text-sm truncate">{lead.name}</p>
-      <p className="text-xs text-gray-500 truncate">{lead.mobile || lead.email || "-"}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium text-sm truncate">{lead.name}</p>
+        {lead.locked && <LockedBadge />}
+      </div>
+      <p className="text-xs text-gray-500 truncate">
+        {lead.locked ? "Pay to view contact details" : lead.mobile || lead.email || "-"}
+      </p>
       {lead.property_title && (
         <p className="text-xs text-[var(--primary)] truncate mt-1">{lead.property_title}</p>
       )}
@@ -358,6 +372,7 @@ interface FollowupItem {
   type: string;
   remarks: string | null;
   followup_date: string | null;
+  locked?: boolean;
   lead_name: string;
   lead_mobile: string | null;
   lead_email: string | null;
@@ -410,8 +425,15 @@ function FollowUpsView({ onLeadClick }: { onLeadClick: (id: number) => void }) {
                   className="border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer"
                 >
                   <td className="px-4 py-3">{i + 1}</td>
-                  <td className="px-4 py-3">{item.lead_name}</td>
-                  <td className="px-4 py-3 hidden sm:table-cell">{item.lead_mobile || "-"}</td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-1.5">
+                      {item.locked && "🔒"}
+                      {item.lead_name}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 hidden sm:table-cell">
+                    {item.locked ? <span className="text-gray-400">Pay to view</span> : item.lead_mobile || "-"}
+                  </td>
                   <td className="px-4 py-3">
                     {meta && (
                       <span className="px-2 py-0.5 rounded text-xs font-medium text-white" style={{ backgroundColor: meta.color }}>
@@ -476,11 +498,14 @@ function ArchivedView({
               <tr key={lead.id} className="border-b border-gray-50 last:border-0">
                 <td className="px-4 py-3">{i + 1}</td>
                 <td className="px-4 py-3">
-                  <button onClick={() => onLeadClick(lead.id)} className="font-medium text-[var(--primary)] hover:underline">
+                  <button onClick={() => onLeadClick(lead.id)} className="font-medium text-[var(--primary)] hover:underline inline-flex items-center gap-1.5">
+                    {lead.locked && "🔒"}
                     {lead.name}
                   </button>
                 </td>
-                <td className="px-4 py-3 hidden sm:table-cell">{lead.mobile || "-"}</td>
+                <td className="px-4 py-3 hidden sm:table-cell">
+                  {lead.locked ? <span className="text-gray-400">Pay to view</span> : lead.mobile || "-"}
+                </td>
                 <td className="px-4 py-3">
                   {meta && (
                     <span className="px-2 py-0.5 rounded text-xs font-medium text-white" style={{ backgroundColor: meta.color }}>
@@ -589,13 +614,22 @@ function LeadDetailModal({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold">{lead.name}</h2>
+              {lead.locked && <LockedBadge />}
               {meta && (
                 <span className="px-2 py-0.5 rounded text-xs font-medium text-white" style={{ backgroundColor: meta.color }}>
                   {meta.label}
                 </span>
               )}
             </div>
-            <p className="text-sm text-gray-500">{lead.mobile} {lead.email ? `· ${lead.email}` : ""}</p>
+            <p className="text-sm text-gray-500">
+              {lead.locked ? (
+                <span className="text-gray-400">🔒 Pay to view contact details</span>
+              ) : (
+                <>
+                  {lead.mobile} {lead.email ? `· ${lead.email}` : ""}
+                </>
+              )}
+            </p>
             <p className="text-xs text-gray-400 mt-0.5">
               {getSourceBadge(lead.source).label} — {getSourceBadge(lead.source).sublabel}
             </p>

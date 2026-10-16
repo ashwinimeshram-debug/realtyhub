@@ -99,7 +99,7 @@ export default function SearchBar({ onSearch }: SearchBarProps) {
       >
         <option value="">All Locations</option>
         {locations.map((loc) => (
-          <option key={loc.name} value={loc.name}>{loc.name} ({loc.count})</option>
+          <option key={loc.name} value={loc.name}>{loc.name}{loc.count > 0 ? ` (${loc.count})` : ""}</option>
         ))}
       </select>
       <select

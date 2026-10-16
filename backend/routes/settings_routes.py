@@ -56,7 +56,8 @@ def public_get_settings():
     return resp
 
 
-SECRET_SETTING_KEYS = {"mail_password", "whatsapp_access_token", "twilio_auth_token"}
+SECRET_SETTING_KEYS = {"mail_password", "whatsapp_access_token", "twilio_auth_token",
+                       "payment_key_secret", "payment_webhook_secret"}
 
 
 @settings_bp.route("/admin/settings", methods=["GET"])
@@ -95,9 +96,18 @@ def admin_update_settings():
         "section_order", "section_hero_visible", "section_services_visible",
         "section_advantages_visible", "section_testimonials_visible",
         "section_featured_visible", "section_faq_visible", "section_locations_visible",
-        "section_new_visible", "section_new_count",
+        "section_new_visible", "section_new_count", "section_featured_count",
+        "section_featured_split",
         "auto_assign_leads", "auto_approve_properties", "allow_public_post",
         "data_retention_days",
+        # Paid-listing lifecycle
+        "require_listing_payment",
+        "listing_sell_price", "listing_sell_days",
+        "listing_rent_price", "listing_rent_days",
+        "featured_price", "featured_days",
+        "listing_grace_days", "listing_expiry_reminder_days",
+        "payment_provider", "payment_key_id", "payment_currency",
+        "payment_key_secret", "payment_webhook_secret",
         "share_caption_template",
         "seo_google_verification", "seo_bing_verification", "seo_default_description",
         "rera_license",

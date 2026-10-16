@@ -36,7 +36,7 @@ export function buildSiteInfo(
   settings: Record<string, string>,
   siteUrl: string = SITE_URL,
 ): SiteInfo {
-  const siteName = (settings.site_name || "").trim() || "Nagpur Realty Hub";
+  const siteName = (settings.site_name || "").trim() || "Realty Hub";
   const socials = [
     settings.social_facebook,
     settings.social_instagram,

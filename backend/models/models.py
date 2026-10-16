@@ -11,6 +11,7 @@ class Property(db.Model):
     description = db.Column(db.Text)
     transaction_type = db.Column(db.String(20))
     property_type = db.Column(db.String(50), nullable=False, default="flat")
+    listed_by = db.Column(db.String(20), default="owner")
     price = db.Column(db.Numeric(12, 2))
     price_text = db.Column(db.String(50), default="*")
     location = db.Column(db.String(255), nullable=False)
@@ -31,6 +32,15 @@ class Property(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = db.Column(db.DateTime, nullable=True)
 
+    # Paid-listing lifecycle. payment_status: unpaid | paid | waived
+    # (waived = staff listing or free-listing promotion bypass).
+    published_at = db.Column(db.DateTime, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    last_renewed_at = db.Column(db.DateTime, nullable=True)
+    renewal_count = db.Column(db.Integer, default=0)
+    featured_until = db.Column(db.DateTime, nullable=True)
+    payment_status = db.Column(db.String(20), default="unpaid")
+
     property_contacts = db.relationship("PropertyContact", backref="property", lazy="dynamic", cascade="all, delete-orphan")
     images = db.relationship("PropertyImage", backref="property", lazy="selectin", cascade="all, delete-orphan",
                              order_by="PropertyImage.order")
@@ -46,6 +56,9 @@ class Property(db.Model):
         db.Index("idx_property_uploaded_by", "uploaded_by"),
         db.Index("idx_property_price", "price"),
         db.Index("idx_property_geo", "latitude", "longitude"),
+        db.Index("idx_property_expires", "expires_at"),
+        db.Index("idx_property_featured_until", "featured_until"),
+        db.Index("idx_property_payment_status", "payment_status"),
         db.Index(
             "idx_property_title_trgm", "title",
             postgresql_using="gin", postgresql_ops={"title": "gin_trgm_ops"},
@@ -482,4 +495,58 @@ class PropertyAuditLog(db.Model):
         db.Index("idx_pal_user", "user_id"),
         db.Index("idx_pal_action", "action"),
         db.Index("idx_pal_created", "created_at"),
+    )
+
+
+class ListingTransaction(db.Model):
+    """A payment/entitlement purchase for a listing or a featured boost.
+
+    purpose: listing (listing validity) | featured (featured placement add-on).
+    status:  pending | paid | failed | cancelled.
+    method:  online (gateway) | manual (admin marked paid) | waived (comp).
+    """
+
+    __tablename__ = "listing_transactions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    property_id = db.Column(db.Integer, db.ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
+    owner_id = db.Column(db.Integer, db.ForeignKey("owners.id", ondelete="SET NULL"), nullable=True, index=True)
+    purpose = db.Column(db.String(20), nullable=False, default="listing")
+    transaction_type = db.Column(db.String(20), nullable=True)
+    amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    currency = db.Column(db.String(8), default="INR")
+    duration_days = db.Column(db.Integer, nullable=False, default=0)
+    provider = db.Column(db.String(20), default="mock")
+    provider_order_id = db.Column(db.String(120), nullable=True, unique=True, index=True)
+    provider_payment_id = db.Column(db.String(120), nullable=True)
+    status = db.Column(db.String(20), default="pending")
+    method = db.Column(db.String(20), default="online")
+    notes = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    paid_at = db.Column(db.DateTime, nullable=True)
+
+    property = db.relationship("Property", backref="transactions", lazy="joined")
+    owner = db.relationship("Owner", backref="listing_transactions", lazy="joined")
+
+    __table_args__ = (
+        db.Index("idx_ltxn_property", "property_id"),
+        db.Index("idx_ltxn_status", "status"),
+        db.Index("idx_ltxn_created", "created_at"),
+    )
+
+
+class ListingReminder(db.Model):
+    """Idempotency ledger for lifecycle notifications (reminders / expiry)."""
+
+    __tablename__ = "listing_reminders"
+
+    id = db.Column(db.Integer, primary_key=True)
+    property_id = db.Column(db.Integer, db.ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
+    kind = db.Column(db.String(20), nullable=False, default="expiry")
+    stage_days = db.Column(db.Integer, nullable=False, default=0)
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("property_id", "kind", "stage_days", name="uq_listing_reminder"),
+        db.Index("idx_lrem_property", "property_id"),
     )

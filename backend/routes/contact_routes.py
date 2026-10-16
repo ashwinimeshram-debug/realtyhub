@@ -5,7 +5,7 @@ from models.contactus import Contactus
 from models.models import Admin, PropertyContact, Property
 from sqlalchemy.orm import joinedload
 from utils.consent import consent_given, record_consent
-from utils.mailer import contactus_admin_email, send_email_async
+from utils.mailer import contactus_admin_email, get_site_name, send_email_async
 
 contact_bp = Blueprint("contact", __name__)
 
@@ -28,7 +28,7 @@ def create_contact():
     admins = Admin.query.filter_by(role="admin", is_active=True).all()
     for admin in admins:
         send_email_async(
-            "New contact form message - Nagpur Realty Hub",
+            f"New contact form message - {get_site_name()}",
             [admin.email],
             contactus_admin_email(new_contact, admin.name or admin.username),
         )
@@ -43,7 +43,7 @@ def admin_get_contacts():
     all_props = Property.query.order_by(Property.created_at.desc()).options(
         db.joinedload(Property.uploaded_admin)
     ).all()
-    prop_map = {p.id: {"title": p.title, "uploader_user_id": p.uploaded_admin.user_id if p.uploaded_admin else None} for p in all_props}
+    prop_map = {p.id: {"title": p.title, "uploader_user_id": p.uploaded_admin.user_id if p.uploaded_admin else None, "listed_by": p.listed_by or "owner"} for p in all_props}
 
     result = []
     seen_props = set()
@@ -52,7 +52,7 @@ def admin_get_contacts():
         prop_data = prop_map.get(c.property_id, {})
         result.append({
             "id": c.id, "property_id": c.property_id, "property_title": prop_data.get("title"),
-            "user_id": prop_data.get("uploader_user_id"),
+            "user_id": prop_data.get("uploader_user_id"), "listed_by": prop_data.get("listed_by"),
             "type": c.type, "name": c.name or "", "email": c.email, "mobile": c.mobile,
             "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S") if c.created_at else None
         })
@@ -62,6 +62,7 @@ def admin_get_contacts():
             result.append({
                 "id": -p.id, "property_id": p.id, "property_title": p.title,
                 "user_id": prop_map.get(p.id, {}).get("uploader_user_id"),
+                "listed_by": prop_map.get(p.id, {}).get("listed_by"),
                 "type": "owner", "name": "", "email": None, "mobile": None,
                 "created_at": p.created_at.strftime("%Y-%m-%d %H:%M:%S") if p.created_at else None,
             })

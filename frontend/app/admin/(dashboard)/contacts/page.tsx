@@ -14,10 +14,11 @@ interface Contact {
   name: string;
   email: string | null;
   mobile: string | null;
+  listed_by: string | null;
   created_at: string | null;
 }
 
-type SortKey = "user_id" | "property_title" | "name" | "type" | "created_at";
+type SortKey = "user_id" | "property_title" | "name" | "type" | "listed_by" | "created_at";
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -108,6 +109,7 @@ export default function ContactsPage() {
                   <th onClick={() => handleSort("property_title")} className="px-4 py-3 font-medium text-gray-600 text-center cursor-pointer hover:text-gray-800">Property {sortArrow("property_title")}</th>
                   <th onClick={() => handleSort("name")} className="px-4 py-3 font-medium text-gray-600 text-center cursor-pointer hover:text-gray-800">Contact {sortArrow("name")}</th>
                   <th onClick={() => handleSort("type")} className="px-4 py-3 font-medium text-gray-600 text-center cursor-pointer hover:text-gray-800">Type {sortArrow("type")}</th>
+                  <th onClick={() => handleSort("listed_by")} className="px-4 py-3 font-medium text-gray-600 text-center cursor-pointer hover:text-gray-800">Listed By {sortArrow("listed_by")}</th>
                   <th onClick={() => handleSort("created_at")} className="px-4 py-3 font-medium text-gray-600 text-center cursor-pointer hover:text-gray-800">Created {sortArrow("created_at")}</th>
                 </tr>
               </thead>
@@ -139,6 +141,11 @@ export default function ContactsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 capitalize">{c.type}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {c.listed_by ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 capitalize">{c.listed_by}</span>
+                      ) : "-"}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
                       {c.created_at || "-"}

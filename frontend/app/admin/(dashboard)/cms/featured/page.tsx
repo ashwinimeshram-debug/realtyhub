@@ -16,12 +16,46 @@ export default function FeaturedPropertiesPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [count, setCount] = useState(20);
+  const [split, setSplit] = useState(8);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchProperties();
-    API.get("/settings").then((res) => setSettings(res.data)).catch(() => {});
+    API.get("/admin/settings")
+      .then((res) => {
+        setSettings(res.data);
+        const parsed = parseInt(res.data["section_featured_count"] || "20", 10);
+        setCount(Math.min(Math.max(Number.isFinite(parsed) ? parsed : 20, 1), 50));
+        const parsedSplit = parseInt(res.data["section_featured_split"] || "8", 10);
+        setSplit(Math.min(Math.max(Number.isFinite(parsedSplit) ? parsedSplit : 8, 2), 50));
+      })
+      .catch(() => {});
   }, []);
+
+  const saveCount = async (value: number) => {
+    const clamped = Math.min(Math.max(Number.isFinite(value) ? value : 20, 1), 50);
+    if (clamped === count) return;
+    setCount(clamped);
+    try {
+      await API.put("/admin/settings", { section_featured_count: String(clamped) });
+      toast("Featured slot limit updated", "success");
+    } catch {
+      toast("Failed to update", "error");
+    }
+  };
+
+  const saveSplit = async (value: number) => {
+    const clamped = Math.min(Math.max(Number.isFinite(value) ? value : 8, 2), 50);
+    if (clamped === split) return;
+    setSplit(clamped);
+    try {
+      await API.put("/admin/settings", { section_featured_split: String(clamped) });
+      toast("Second-row threshold updated", "success");
+    } catch {
+      toast("Failed to update", "error");
+    }
+  };
 
   const fetchProperties = async () => {
     try {
@@ -100,6 +134,81 @@ export default function FeaturedPropertiesPage() {
       <p className="text-sm text-gray-500 text-center -mt-1 mb-4 md:mb-6">Mark properties as featured to display them on the homepage</p>
 
       <SectionHeaderEditor sectionKey="featured" sectionName="Featured Properties" settings={settings} onUpdate={handleHeaderUpdate} />
+
+      {/* SLOT LIMIT */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 md:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">Featured slot limit</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Max properties shown in the featured section ({counts.featured} currently featured).
+            New featured listings and payments are blocked once this many are live. Between 1 and 50.
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            Paid featured placement runs for {settings["featured_days"] || "30"} days (set in Settings → Listings &amp; Payments).
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => saveCount(count - 1)}
+            disabled={count <= 1}
+            className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            −
+          </button>
+          <input
+            type="number"
+            min={1}
+            max={50}
+            value={count}
+            onChange={(e) => setCount(parseInt(e.target.value || "20", 10))}
+            onBlur={(e) => saveCount(parseInt(e.target.value || "20", 10))}
+            className="w-16 text-center border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-[var(--primary)]/30 focus:border-[var(--primary)] outline-none"
+          />
+          <button
+            onClick={() => saveCount(count + 1)}
+            disabled={count >= 50}
+            className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            +
+          </button>
+        </div>
+      </div>
+
+      {/* SECOND-ROW THRESHOLD */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 md:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">Second-row threshold</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Below this many featured cards the homepage shows a single carousel row. Once this many or more
+            are live, a second scrolling row appears and the cards split across both rows. Between 2 and 50.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => saveSplit(split - 1)}
+            disabled={split <= 2}
+            className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            −
+          </button>
+          <input
+            type="number"
+            min={2}
+            max={50}
+            value={split}
+            onChange={(e) => setSplit(parseInt(e.target.value || "8", 10))}
+            onBlur={(e) => saveSplit(parseInt(e.target.value || "8", 10))}
+            className="w-16 text-center border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-[var(--primary)]/30 focus:border-[var(--primary)] outline-none"
+          />
+          <button
+            onClick={() => saveSplit(split + 1)}
+            disabled={split >= 50}
+            className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            +
+          </button>
+        </div>
+      </div>
 
       {/* FILTERS */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">

@@ -1,11 +1,12 @@
 from flask import Blueprint, request, jsonify, current_app, abort
-from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog, Role, Permission, RolePermission, Owner
+from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog, Role, Permission, RolePermission, Owner, ListingTransaction, SavedSearch
 from models.contactus import Contactus
 from models.analytics_model import PageVisit
 from datetime import datetime, timedelta
 from sqlalchemy import func, cast, String, or_
 import bcrypt
 import secrets
+import json
 import os
 import re
 import time
@@ -20,8 +21,9 @@ from extensions import limiter
 from utils.helpers import generate_listing_id, paginate
 from utils.supabase_storage import delete_file
 from utils.images import process_image_upload
-from utils.mailer import password_reset_email, send_email_async, submission_confirmed_email, submission_rejected_email
+from utils.mailer import get_site_name, password_reset_email, send_email_async, submission_confirmed_email, submission_rejected_email
 from utils.permissions import has_permission, is_admin, current_admin, admin_permissions, PERMISSION_CATALOG, require_permission
+from utils.leads_scope import internal_lead_condition
 from routes.settings_routes import is_setting_enabled
 import logging
 
@@ -33,8 +35,9 @@ DEFAULT_ALLOWED = {"png", "jpg", "jpeg", "gif", "webp", "avif"}
 
 
 VALID_STATUSES = {"pending", "approved", "rejected"}
-VALID_TRANSACTION_TYPES = {"sell", "rent"}
+VALID_TRANSACTION_TYPES = {"buy", "sell", "rent", "resale"}
 VALID_PROPERTY_TYPES = {"flat", "house", "plot", "commercial", "villa", "bungalow", "penthouse", "other"}
+VALID_LISTED_BY = {"owner", "agent", "broker"}
 
 
 def _login_limit_key():
@@ -215,10 +218,18 @@ def check_auth():
 # LOGOUT
 # =========================
 @admin_bp.route("/logout", methods=["POST"])
-@jwt_required()
 def logout():
-    from utils.auth import revoke_current_token
-    revoke_current_token()
+    # Deliberately no @jwt_required: when a session expires the client still
+    # holds a stale access cookie. We try to revoke the token, but the cookies
+    # are always cleared afterwards so the browser cannot keep sending it.
+    from flask_jwt_extended import verify_jwt_in_request
+    try:
+        verify_jwt_in_request(optional=True)
+        if get_jwt_identity():
+            from utils.auth import revoke_current_token
+            revoke_current_token()
+    except Exception:
+        pass
     response = jsonify({"message": "Logged out"})
     unset_jwt_cookies(response)
     return response
@@ -246,14 +257,14 @@ def my_summary():
     total_users = Admin.query.count()
 
     if is_admin:
-        total_leads = Lead.query.count()
-        new_leads = Lead.query.filter(Lead.created_at >= today_start).count()
-        leads_30d = Lead.query.filter(Lead.created_at >= now - timedelta(days=30)).count()
+        total_leads = Lead.query.filter(internal_lead_condition()).count()
+        new_leads = Lead.query.filter(internal_lead_condition(), Lead.created_at >= today_start).count()
+        leads_30d = Lead.query.filter(internal_lead_condition(), Lead.created_at >= now - timedelta(days=30)).count()
     else:
         uid = int(admin_id)
-        total_leads = Lead.query.filter_by(assigned_to=uid).count()
-        new_leads = Lead.query.filter(Lead.assigned_to == uid, Lead.created_at >= today_start).count()
-        leads_30d = Lead.query.filter(Lead.assigned_to == uid, Lead.created_at >= now - timedelta(days=30)).count()
+        total_leads = Lead.query.filter(internal_lead_condition(), Lead.assigned_to == uid).count()
+        new_leads = Lead.query.filter(internal_lead_condition(), Lead.assigned_to == uid, Lead.created_at >= today_start).count()
+        leads_30d = Lead.query.filter(internal_lead_condition(), Lead.assigned_to == uid, Lead.created_at >= now - timedelta(days=30)).count()
 
     contactus_today = Contactus.query.filter(Contactus.created_at >= today_start).count() if hasattr(Contactus, 'created_at') else 0
 
@@ -319,6 +330,9 @@ def get_all_properties():
             "uploader_user_id": p.uploaded_admin.user_id if p.uploaded_admin else None,
             "owner_name": owner_pc.name if owner_pc else None,
             "is_featured": bool(p.is_featured),
+            "payment_status": p.payment_status or "unpaid",
+            "expires_at": p.expires_at.isoformat() if p.expires_at else None,
+            "featured_until": p.featured_until.isoformat() if p.featured_until else None,
             "first_image": image_map.get(p.id),
         })
     return jsonify({"items": result, "total": total, "page": page, "per_page": per_page})
@@ -364,8 +378,13 @@ def get_property(id):
         "is_featured": prop.is_featured,
         "is_verified": prop.is_verified,
         "is_closed": prop.is_closed,
+        "payment_status": prop.payment_status or "unpaid",
+        "expires_at": prop.expires_at.isoformat() if prop.expires_at else None,
+        "featured_until": prop.featured_until.isoformat() if prop.featured_until else None,
+        "owner_id": prop.owner_id,
         "transaction_type": prop.transaction_type,
         "property_type": prop.property_type,
+        "listed_by": prop.listed_by or "owner",
         "overview_template_id": prop.overview_template_id,
         "closing_template_id": prop.closing_template_id,
         "title_template_id": prop.title_template_id,
@@ -437,6 +456,7 @@ def create_property():
         longitude=_parse_coord(data.get("longitude"), -180, 180),
         transaction_type=data.get("transaction_type", "sell"),
         property_type=data.get("property_type", "flat"),
+        listed_by=data.get("listed_by") if data.get("listed_by") in VALID_LISTED_BY else "owner",
         status="approved" if approved_now else "pending",
         is_active=approved_now,
         is_verified=True if creator_is_admin else False,
@@ -553,6 +573,11 @@ def update_property(id):
         if val not in VALID_PROPERTY_TYPES:
             return jsonify({"error": f"Invalid property_type. Must be one of: {', '.join(VALID_PROPERTY_TYPES)}"}), 400
         prop.property_type = val
+    if "listed_by" in data:
+        val = data["listed_by"]
+        if val not in VALID_LISTED_BY:
+            return jsonify({"error": f"Invalid listed_by. Must be one of: {', '.join(VALID_LISTED_BY)}"}), 400
+        prop.listed_by = val
 
     _changed_status = "status" in data
     _changed_featured = "is_featured" in data
@@ -737,7 +762,7 @@ def approve_property(id):
     _log_activity("approve", "property", id)
     if prop.owner_id and prop.owner:
         send_email_async(
-            "Your property is now live - Nagpur Realty Hub",
+            f"Your property is now live - {get_site_name()}",
             [prop.owner.email],
             submission_confirmed_email(prop, prop.owner.name),
         )
@@ -758,7 +783,7 @@ def reject_property(id):
     _log_activity("reject", "property", id)
     if prop.owner_id and prop.owner:
         send_email_async(
-            "Property needs changes - Nagpur Realty Hub",
+            f"Property needs changes - {get_site_name()}",
             [prop.owner.email],
             submission_rejected_email(prop, prop.owner.name),
         )
@@ -806,6 +831,10 @@ def toggle_featured(id):
     prop = Property.query.get(id)
     if not prop:
         return jsonify({"error": "Property not found"}), 404
+    if not prop.is_featured:
+        from utils.listing_lifecycle import can_feature_another
+        if not can_feature_another():
+            return jsonify({"error": "All featured slots are currently full.", "code": "featured_full"}), 409
     prop.is_featured = not prop.is_featured
     db.session.commit()
     return jsonify({"message": "Featured updated", "is_featured": prop.is_featured})
@@ -1046,7 +1075,7 @@ def forgot_password():
 
     reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
     send_email_async(
-        "Reset Your Password - Nagpur Realty Hub",
+        f"Reset Your Password - {get_site_name()}",
         [admin.email],
         password_reset_email(reset_link),
     )
@@ -1877,3 +1906,203 @@ def admin_reset_user_password():
     db.session.commit()
 
     return jsonify({"message": f"Password reset for {user.username} ({user.email})"})
+
+
+# =========================
+# PAYMENTS (listing lifecycle)
+# =========================
+@admin_bp.route("/payments/transactions", methods=["GET"])
+@require_permission("payments.manage")
+def payments_list_transactions():
+    page = int(request.args.get("page", 1) or 1)
+    per_page = int(request.args.get("per_page", 50) or 50)
+    q = ListingTransaction.query
+
+    status = (request.args.get("status") or "").strip().lower()
+    if status:
+        q = q.filter(ListingTransaction.status == status)
+    purpose = (request.args.get("purpose") or "").strip().lower()
+    if purpose:
+        q = q.filter(ListingTransaction.purpose == purpose)
+
+    total = q.count()
+    rows = q.order_by(ListingTransaction.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+
+    items = []
+    for t in rows:
+        prop = t.property
+        items.append({
+            "id": t.id,
+            "property_id": t.property_id,
+            "property_title": prop.title if prop else None,
+            "listing_id": prop.listing_id if prop else None,
+            "owner_id": t.owner_id,
+            "purpose": t.purpose,
+            "transaction_type": t.transaction_type,
+            "amount": float(t.amount) if t.amount is not None else None,
+            "currency": t.currency,
+            "duration_days": t.duration_days,
+            "provider": t.provider,
+            "provider_order_id": t.provider_order_id,
+            "provider_payment_id": t.provider_payment_id,
+            "status": t.status,
+            "method": t.method,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "paid_at": t.paid_at.isoformat() if t.paid_at else None,
+        })
+    return jsonify({"items": items, "total": total, "page": page, "per_page": per_page})
+
+
+@admin_bp.route("/payments/transactions/<int:id>/mark-paid", methods=["POST"])
+@require_permission("payments.manage")
+def payments_mark_paid(id):
+    from utils.listing_lifecycle import apply_paid_transaction
+    txn = ListingTransaction.query.get(id)
+    if not txn:
+        return jsonify({"error": "Transaction not found"}), 404
+    if txn.status == "paid":
+        return jsonify({"status": "ok", "already_paid": True, "transaction_id": txn.id})
+
+    data = request.json or {}
+    method = (data.get("method") or "manual").strip().lower()
+    notes = (data.get("notes") or "").strip()
+    if notes:
+        txn.notes = (txn.notes + " | " if txn.notes else "") + f"Manual: {notes}"
+    apply_paid_transaction(txn, provider_payment_id=data.get("provider_payment_id"),
+                           method=method, provider=txn.provider)
+    _log_activity("payment_mark_paid", "property", txn.property_id)
+    return jsonify({"status": "ok", "transaction_id": txn.id, "method": method})
+
+
+@admin_bp.route("/payments/properties/<int:id>/waive", methods=["POST"])
+@require_permission("payments.manage")
+def payments_waive_property(id):
+    from utils.listing_lifecycle import plan_for, waive_listing
+    prop = Property.query.get(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    data = request.json or {}
+    days = int(data.get("duration_days") or plan_for(prop.transaction_type)["duration_days"])
+    waive_listing(prop, days)
+    db.session.commit()
+    _log_activity("payment_waived", "property", id)
+    return jsonify({"message": "Payment waived; property published", "expires_at":
+                    prop.expires_at.isoformat() if prop.expires_at else None})
+
+
+@admin_bp.route("/payments/properties/<int:id>/grant-days", methods=["POST"])
+@require_permission("payments.manage")
+def payments_grant_days(id):
+    from utils.listing_lifecycle import renew_listing
+    prop = Property.query.get(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    data = request.json or {}
+    days = int(data.get("duration_days") or 30)
+    renew_listing(prop, days)
+    db.session.commit()
+    _log_activity("payment_grant_days", "property", id)
+    return jsonify({"message": f"Granted {days} day(s)", "expires_at":
+                    prop.expires_at.isoformat() if prop.expires_at else None})
+
+
+@admin_bp.route("/payments/properties/<int:id>/feature", methods=["POST"])
+@require_permission("payments.manage")
+def payments_feature_property(id):
+    from utils.listing_lifecycle import add_featured_days, is_effectively_featured, can_feature_another
+    prop = Property.query.get(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    if not is_effectively_featured(prop) and not can_feature_another():
+        return jsonify({"error": "All featured slots are currently full.", "code": "featured_full"}), 409
+    data = request.json or {}
+    days = int(data.get("featured_days") or 30)
+    add_featured_days(prop, days)
+    db.session.commit()
+    _log_activity("payment_feature_grant", "property", id)
+    return jsonify({"message": f"Featured for {days} day(s)", "featured_until":
+                    prop.featured_until.isoformat() if prop.featured_until else None,
+                    "is_featured": prop.is_featured})
+
+
+# =========================
+# SEARCH ALERTS (saved searches)
+# =========================
+@admin_bp.route("/saved-searches", methods=["GET"])
+@require_permission("alerts.manage")
+def admin_list_saved_searches():
+    """List saved-search alert subscriptions (guest visitors + registered users)."""
+    page = int(request.args.get("page", 1) or 1)
+    per_page = int(request.args.get("per_page", 50) or 50)
+    per_page = max(1, min(per_page, 200))
+    if page < 1:
+        page = 1
+
+    search = (request.args.get("search") or "").strip()
+    kind = (request.args.get("type") or "all").strip().lower()
+    active = (request.args.get("is_active") or "").strip().lower()
+
+    query = SavedSearch.query
+    if kind == "guest":
+        query = query.filter(SavedSearch.owner_id.is_(None))
+    elif kind == "registered":
+        query = query.filter(SavedSearch.owner_id.isnot(None))
+
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            SavedSearch.email.ilike(like),
+            SavedSearch.phone.ilike(like),
+            SavedSearch.name.ilike(like),
+        ))
+
+    if active in ("true", "1"):
+        query = query.filter(SavedSearch.is_active.is_(True))
+    elif active in ("false", "0"):
+        query = query.filter(SavedSearch.is_active.is_(False))
+
+    total = query.count()
+    rows = (
+        query.order_by(SavedSearch.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+
+    items = []
+    for s in rows:
+        try:
+            params = json.loads(s.params or "{}")
+        except (ValueError, TypeError):
+            params = {}
+        items.append({
+            "id": s.id,
+            "owner_id": s.owner_id,
+            "owner_name": s.owner.name if s.owner else None,
+            "is_guest": s.owner_id is None,
+            "email": s.email,
+            "phone": s.phone,
+            "name": s.name,
+            "params": params,
+            "notify": s.notify,
+            "is_active": s.is_active,
+            "last_notified_at": s.last_notified_at.isoformat() if s.last_notified_at else None,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        })
+
+    guest_count = SavedSearch.query.filter(SavedSearch.owner_id.is_(None)).count()
+    registered_count = SavedSearch.query.filter(SavedSearch.owner_id.isnot(None)).count()
+    active_count = SavedSearch.query.filter(SavedSearch.is_active.is_(True)).count()
+
+    return jsonify({
+        "items": items,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "summary": {
+            "all": guest_count + registered_count,
+            "guest": guest_count,
+            "registered": registered_count,
+            "active": active_count,
+        },
+    })

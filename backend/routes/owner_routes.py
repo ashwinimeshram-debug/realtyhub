@@ -23,21 +23,28 @@ from werkzeug.utils import secure_filename
 from extensions import db, limiter
 from routes.settings_routes import is_setting_enabled
 from models.models import (
-    ConsentRecord, Lead, LeadHistory, Owner, Property, PropertyContact,
-    PropertyFeature, PropertyImage, PropertyTypeField, PropertyValue,
-    PresetFeature, SavedSearch,
+    ConsentRecord, Lead, LeadHistory, ListingTransaction, Owner, Property,
+    PropertyContact, PropertyFeature, PropertyImage, PropertyTypeField,
+    PropertyValue, PresetFeature, SavedSearch,
 )
 from utils.consent import consent_given, record_consent
-from utils.mailer import frontend_url, password_reset_email, send_email_async, verification_email
+from utils.mailer import frontend_url, get_site_name, password_reset_email, send_email_async, verification_email
 from utils.supabase_storage import delete_file
 from utils.images import process_image_upload
+from utils import payments as payment_gateway
+from utils.listing_lifecycle import (
+    featured_plan, plan_for, payment_required, currency as plan_currency,
+    listing_state, days_until_expiry, plans_payload, lead_details_locked,
+    is_effectively_featured, can_feature_another, FeaturedSlotsFullError,
+)
 
 logger = logging.getLogger("realtyhub")
 
 owner_bp = Blueprint("owner", __name__)
 
-VALID_TRANSACTION_TYPES = {"sell", "rent"}
+VALID_TRANSACTION_TYPES = {"buy", "sell", "rent", "resale"}
 VALID_PROPERTY_TYPES = {"flat", "house", "plot", "commercial", "villa", "bungalow", "penthouse", "other"}
+VALID_LISTED_BY = {"owner", "agent", "broker"}
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MOBILE_RE = re.compile(r"^[0-9+\-\s()]{10,20}$")
 MIN_PASSWORD_LENGTH = 8
@@ -134,7 +141,7 @@ def _send_verification(owner):
     owner.verification_expiry = datetime.utcnow() + timedelta(hours=24)
     db.session.commit()
     send_email_async(
-        "Verify your email - Nagpur Realty Hub",
+        f"Verify your email - {get_site_name()}",
         [owner.email],
         verification_email(owner.name, token),
     )
@@ -249,10 +256,17 @@ def login():
 
 
 @owner_bp.route("/logout", methods=["POST"])
-@owner_required
 def logout():
-    from utils.auth import revoke_current_token
-    revoke_current_token()
+    # No @owner_required: cookies must clear even when the token has already
+    # expired or been revoked (session-expiry logout).
+    from flask_jwt_extended import verify_jwt_in_request
+    try:
+        verify_jwt_in_request(optional=True)
+        if get_owner_id():
+            from utils.auth import revoke_current_token
+            revoke_current_token()
+    except Exception:
+        pass
     resp = jsonify({"message": "Logged out"})
     unset_jwt_cookies(resp)
     return resp
@@ -274,7 +288,7 @@ def forgot_password():
 
     reset_link = frontend_url(f"owner-reset-password/{token}")
     send_email_async(
-        "Reset Your Password - Nagpur Realty Hub",
+        f"Reset Your Password - {get_site_name()}",
         [owner.email],
         password_reset_email(reset_link),
     )
@@ -354,9 +368,18 @@ def my_properties():
             "location": p.location,
             "transaction_type": p.transaction_type,
             "property_type": p.property_type,
+            "listed_by": p.listed_by or "owner",
             "image": first_image,
             "lead_count": lead_counts.get(p.id, 0),
             "created_at": p.created_at.isoformat() if p.created_at else None,
+            # Paid-listing lifecycle
+            "payment_status": p.payment_status or "unpaid",
+            "expires_at": p.expires_at.isoformat() if p.expires_at else None,
+            "featured_until": p.featured_until.isoformat() if p.featured_until else None,
+            "renewal_count": p.renewal_count or 0,
+            "listing_state": listing_state(p),
+            "days_until_expiry": days_until_expiry(p),
+            "is_featured": bool(p.is_featured),
         })
     return jsonify(result)
 
@@ -386,6 +409,7 @@ def my_property(id):
         "longitude": float(prop.longitude) if prop.longitude is not None else None,
         "transaction_type": prop.transaction_type,
         "property_type": prop.property_type,
+        "listed_by": prop.listed_by or "owner",
         "status": prop.status,
         "is_active": bool(prop.is_active),
         "is_closed": bool(prop.is_closed),
@@ -404,6 +428,14 @@ def my_property(id):
             "mobile": owner_pc.mobile if owner_pc else g.owner.mobile,
             "email": owner_pc.email if owner_pc else g.owner.email,
         },
+        # Paid-listing lifecycle
+        "payment_status": prop.payment_status or "unpaid",
+        "expires_at": prop.expires_at.isoformat() if prop.expires_at else None,
+        "featured_until": prop.featured_until.isoformat() if prop.featured_until else None,
+        "renewal_count": prop.renewal_count or 0,
+        "listing_state": listing_state(prop),
+        "days_until_expiry": days_until_expiry(prop),
+        "is_featured": bool(prop.is_featured),
         "created_at": prop.created_at.isoformat() if prop.created_at else None,
     })
 
@@ -459,6 +491,11 @@ def update_my_property(id):
         if property_type not in VALID_PROPERTY_TYPES:
             return jsonify({"error": "Invalid property type"}), 400
         prop.property_type = property_type
+    listed_by = data.get("listed_by")
+    if listed_by:
+        if listed_by not in VALID_LISTED_BY:
+            return jsonify({"error": "Invalid listed by"}), 400
+        prop.listed_by = listed_by
 
     if "price" in data:
         price_text = (data.get("price_text") or "").strip() or "*"
@@ -616,6 +653,159 @@ def reopen_my_property(id):
 
 
 # =========================
+# PAID LISTING LIFECYCLE (checkout / renew / feature)
+# =========================
+def _txn_dict(txn):
+    return {
+        "id": txn.id,
+        "property_id": txn.property_id,
+        "property_title": txn.property.title if txn.property else None,
+        "purpose": txn.purpose,
+        "amount": float(txn.amount) if txn.amount is not None else None,
+        "currency": txn.currency,
+        "duration_days": txn.duration_days,
+        "status": txn.status,
+        "method": txn.method,
+        "provider": txn.provider,
+        "provider_order_id": txn.provider_order_id,
+        "created_at": txn.created_at.isoformat() if txn.created_at else None,
+        "paid_at": txn.paid_at.isoformat() if txn.paid_at else None,
+    }
+
+
+def _create_checkout(prop, purpose):
+    """Create a pending transaction and provider order for a listing/feature."""
+    if purpose == "featured":
+        # A slot is only needed when the property is not already featured.
+        if not is_effectively_featured(prop) and not can_feature_another():
+            raise FeaturedSlotsFullError()
+        plan = featured_plan()
+    else:
+        plan = plan_for(prop.transaction_type)
+
+    provider = payment_gateway.get_payment_provider()
+    amount = plan["price"]
+    currency = plan_currency()
+
+    txn = ListingTransaction(
+        property_id=prop.id,
+        owner_id=g.owner.id,
+        purpose=purpose,
+        transaction_type=prop.transaction_type,
+        amount=amount,
+        currency=currency,
+        duration_days=plan["duration_days"],
+        provider=provider.name,
+        method="online",
+        status="pending",
+    )
+    db.session.add(txn)
+    db.session.flush()
+
+    order = provider.create_order(
+        amount, currency, receipt=f"txn_{txn.id}",
+        notes={
+            "transaction_id": str(txn.id),
+            "property_id": str(prop.id),
+            "purpose": purpose,
+        },
+    )
+    txn.provider_order_id = order["order_id"]
+    db.session.commit()
+
+    return {
+        "transaction_id": txn.id,
+        "purpose": purpose,
+        "amount": amount,
+        "currency": currency,
+        "duration_days": plan["duration_days"],
+        "provider": provider.name,
+        "uses_client_js": getattr(provider, "uses_client_js", False),
+        "public_key": getattr(provider, "public_key", ""),
+        "order": order,
+    }
+
+
+@owner_bp.route("/plans", methods=["GET"])
+@owner_required
+def owner_plans():
+    return jsonify(plans_payload())
+
+
+@owner_bp.route("/properties/<int:id>/checkout", methods=["POST"])
+@owner_required
+@owner_verified
+@limiter.limit("30/hour")
+def checkout_property(id):
+    prop = _own_or_404(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    if prop.is_closed:
+        return jsonify({"error": "Reopen the property before purchasing for it"}), 400
+    data = request.json or {}
+    purpose = (data.get("purpose") or "listing").strip().lower()
+    if purpose not in ("listing", "featured"):
+        return jsonify({"error": "Invalid purpose"}), 400
+    try:
+        payload = _create_checkout(prop, purpose)
+    except FeaturedSlotsFullError:
+        return jsonify({"error": "All featured slots are currently full. Please try again later.",
+                        "code": "featured_full"}), 409
+    except payment_gateway.PaymentConfigurationError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.warning("Checkout failed property=%s: %s", id, e)
+        return jsonify({"error": "Could not start checkout"}), 500
+    return jsonify(payload), 201
+
+
+@owner_bp.route("/properties/<int:id>/renew", methods=["POST"])
+@owner_required
+@owner_verified
+@limiter.limit("30/hour")
+def renew_property(id):
+    prop = _own_or_404(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    try:
+        return jsonify(_create_checkout(prop, "listing")), 201
+    except payment_gateway.PaymentConfigurationError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.warning("Renew checkout failed property=%s: %s", id, e)
+        return jsonify({"error": "Could not start renewal"}), 500
+
+
+@owner_bp.route("/properties/<int:id>/feature", methods=["POST"])
+@owner_required
+@owner_verified
+@limiter.limit("30/hour")
+def feature_property(id):
+    prop = _own_or_404(id)
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    try:
+        return jsonify(_create_checkout(prop, "featured")), 201
+    except FeaturedSlotsFullError:
+        return jsonify({"error": "All featured slots are currently full. Please try again later.",
+                        "code": "featured_full"}), 409
+    except payment_gateway.PaymentConfigurationError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.warning("Feature checkout failed property=%s: %s", id, e)
+        return jsonify({"error": "Could not start checkout"}), 500
+
+
+@owner_bp.route("/transactions", methods=["GET"])
+@owner_required
+def my_transactions():
+    rows = ListingTransaction.query.filter_by(owner_id=g.owner.id).order_by(
+        ListingTransaction.created_at.desc()
+    ).all()
+    return jsonify([_txn_dict(t) for t in rows])
+
+
+# =========================
 # LEADS / CONNECT REQUESTS
 # =========================
 VALID_STAGES = {"NEW", "CONTACTED", "SITE_VISIT", "NEGOTIATION", "CLOSED"}
@@ -637,14 +827,16 @@ def _owner_leads_query():
 
 
 def _owner_lead_dict(lead):
+    locked = lead_details_locked(lead.property, lead)
     return {
         "id": lead.id,
         "property_id": lead.property_id,
         "property_title": lead.property.title if lead.property else None,
         "listing_id": lead.property.listing_id if lead.property else None,
-        "name": lead.name,
-        "email": lead.email,
-        "mobile": lead.mobile,
+        "locked": locked,
+        "name": "Locked enquiry" if locked else lead.name,
+        "email": None if locked else lead.email,
+        "mobile": None if locked else lead.mobile,
         "source": lead.source,
         "stage": lead.stage or "NEW",
         "lead_status": lead.lead_status or "ACTIVE",
@@ -731,15 +923,17 @@ def my_lead_followups():
         lead = Lead.query.get(h.lead_id)
         if not lead:
             continue
+        locked = lead_details_locked(lead.property, lead)
         results.append({
             "id": h.id,
             "lead_id": h.lead_id,
             "type": h.type,
             "remarks": h.remarks,
             "followup_date": h.followup_date.isoformat() if h.followup_date else None,
-            "lead_name": lead.name,
-            "lead_mobile": lead.mobile,
-            "lead_email": lead.email,
+            "locked": locked,
+            "lead_name": "Locked enquiry" if locked else lead.name,
+            "lead_mobile": None if locked else lead.mobile,
+            "lead_email": None if locked else lead.email,
             "source": lead.source,
             "stage": lead.stage or "NEW",
             "lead_status": lead.lead_status or "ACTIVE",
@@ -901,12 +1095,14 @@ def export_my_data():
     leads = []
     if prop_ids:
         for lead in Lead.query.filter(Lead.property_id.in_(prop_ids)).order_by(Lead.created_at.desc()).all():
+            locked = lead_details_locked(lead.property, lead)
             leads.append({
                 "id": lead.id,
                 "property_id": lead.property_id,
-                "name": lead.name,
-                "email": lead.email,
-                "mobile": lead.mobile,
+                "locked": locked,
+                "name": "Locked enquiry" if locked else lead.name,
+                "email": None if locked else lead.email,
+                "mobile": None if locked else lead.mobile,
                 "source": lead.source,
                 "stage": lead.stage,
                 "lead_status": lead.lead_status,

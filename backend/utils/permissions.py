@@ -34,6 +34,8 @@ PERMISSION_CATALOG = [
     {"code": "owners.manage", "label": "Manage registered users", "module": "Users", "description": "View, activate/deactivate and delete registered (public) user accounts"},
     {"code": "roles.manage", "label": "Manage roles & permissions", "module": "Users", "description": "Create roles and edit the permission matrix"},
     {"code": "settings.manage", "label": "Manage settings", "module": "Settings", "description": "Edit platform settings and lead routing options"},
+    {"code": "payments.manage", "label": "Manage payments", "module": "Payments", "description": "View listing transactions and mark payments as paid or waived"},
+    {"code": "alerts.manage", "label": "Manage search alerts", "module": "Alerts", "description": "View guest and registered saved-search alert subscriptions and who receives price/area alerts"},
 ]
 
 # Default roles and the permission codes granted to each. `admin` always has

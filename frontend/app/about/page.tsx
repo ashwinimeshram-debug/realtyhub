@@ -30,7 +30,7 @@ export default async function AboutPage() {
           : "carousel"
       }
       galleryImages={Array.isArray(galleryRes) ? galleryRes : []}
-      siteName={settings.site_name || "Nagpur Realty Hub"}
+      siteName={settings.site_name || "Realty Hub"}
       galleryTransition={settings.about_gallery_transition || "fade"}
     />
   );

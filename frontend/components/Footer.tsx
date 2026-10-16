@@ -71,7 +71,7 @@ export default function Footer() {
 
           {/* Left — Copyright */}
           <div className="text-sm text-white/70 text-center md:text-left">
-            &copy; {new Date().getFullYear()} {settings.site_name || "Nagpur Realty Hub"}. All rights reserved.
+            &copy; {new Date().getFullYear()} {settings.site_name || "Realty Hub"}. All rights reserved.
           </div>
 
           {/* Center — Social */}

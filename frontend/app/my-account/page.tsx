@@ -26,6 +26,13 @@ interface MyProperty {
   image: string | null;
   lead_count: number;
   created_at: string | null;
+  payment_status: string;
+  expires_at: string | null;
+  featured_until: string | null;
+  renewal_count: number;
+  listing_state: string;
+  days_until_expiry: number | null;
+  is_featured: boolean;
 }
 
 interface SavedSearchRow {
@@ -68,20 +75,47 @@ function searchQuery(params: Record<string, string>) {
   return sp.toString();
 }
 
-function StatusBadge({ status, isClosed }: { status: string; isClosed: boolean }) {
-  if (isClosed) {
-    return <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Closed</span>;
-  }
-  const map: Record<string, string> = {
-    pending: "bg-amber-100 text-amber-700",
-    approved: "bg-green-100 text-green-700",
-    rejected: "bg-red-100 text-red-600",
-  };
+const STATE_META: Record<string, { label: string; cls: string }> = {
+  active: { label: "Live", cls: "bg-green-100 text-green-700" },
+  grace: { label: "Expiring", cls: "bg-amber-100 text-amber-700" },
+  expired: { label: "Expired", cls: "bg-red-100 text-red-600" },
+  payment_pending: { label: "Payment Pending", cls: "bg-amber-100 text-amber-700" },
+  pending: { label: "Pending Review", cls: "bg-amber-100 text-amber-700" },
+  rejected: { label: "Rejected", cls: "bg-red-100 text-red-600" },
+  closed: { label: "Closed", cls: "bg-gray-100 text-gray-500" },
+};
+
+function StatusBadge({ state }: { state: string }) {
+  const meta = STATE_META[state] || { label: state, cls: "bg-gray-100 text-gray-500" };
   return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${map[status] || "bg-gray-100 text-gray-500"}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
+    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${meta.cls}`}>{meta.label}</span>
   );
+}
+
+function ExpiryNote({ p }: { p: MyProperty }) {
+  if (p.is_closed || p.listing_state === "payment_pending") return null;
+  if (p.listing_state === "expired") {
+    return (
+      <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">
+        This listing has expired and is hidden. Renew to go live again.
+      </p>
+    );
+  }
+  if (p.listing_state === "grace") {
+    return (
+      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+        Expired — within the grace period. Renew now to keep it live.
+      </p>
+    );
+  }
+  if (p.days_until_expiry != null && p.days_until_expiry <= 15) {
+    return (
+      <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+        Expires in {p.days_until_expiry} day{p.days_until_expiry === 1 ? "" : "s"}.
+      </p>
+    );
+  }
+  return null;
 }
 
 function formatPrice(p: MyProperty) {
@@ -326,7 +360,10 @@ export default function MyAccountPage() {
                       </div>
                     )}
                     <div className="absolute top-2 left-2 flex gap-1.5">
-                      <StatusBadge status={p.status} isClosed={p.is_closed} />
+                      <StatusBadge state={p.is_closed ? "closed" : p.listing_state} />
+                      {p.is_featured && (
+                        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">Featured</span>
+                      )}
                     </div>
                     {p.price != null && (
                       <div className="absolute bottom-2 right-2 bg-white/95 rounded-lg px-2.5 py-1 text-sm font-bold shadow" style={{ color: "var(--primary)" }}>
@@ -346,7 +383,18 @@ export default function MyAccountPage() {
                         {p.lead_count} enquiry{p.lead_count === 1 ? "" : "ies"}
                       </span>
                     </div>
-                    {p.status === "pending" && (
+                    {p.listing_state === "payment_pending" && !p.is_closed && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+                        Payment pending. Complete payment to publish this listing.
+                      </p>
+                    )}
+                    <ExpiryNote p={p} />
+                    {p.is_featured && p.featured_until && !p.is_closed && (
+                      <p className="text-xs text-purple-700 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2 mb-3">
+                        Featured until {new Date(p.featured_until).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}.
+                      </p>
+                    )}
+                    {p.status === "pending" && p.payment_status !== "unpaid" && (
                       <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
                         Waiting for admin review.
                       </p>
@@ -355,6 +403,28 @@ export default function MyAccountPage() {
                       <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">
                         Not approved. Edit and resubmit.
                       </p>
+                    )}
+                    {(p.listing_state === "payment_pending" ||
+                      p.listing_state === "grace" ||
+                      p.listing_state === "expired" ||
+                      (p.listing_state === "active" && !p.is_featured)) && (
+                      <div className="flex gap-2 mb-3">
+                        {p.listing_state === "payment_pending" && (
+                          <Link href={`/checkout/${p.id}?purpose=listing`} className="btn btn-sm btn-primary flex-1 text-center">
+                            Pay &amp; Publish
+                          </Link>
+                        )}
+                        {(p.listing_state === "grace" || p.listing_state === "expired") && (
+                          <Link href={`/checkout/${p.id}?purpose=listing`} className="btn btn-sm btn-primary flex-1 text-center">
+                            Renew
+                          </Link>
+                        )}
+                        {p.listing_state === "active" && !p.is_featured && (
+                          <Link href={`/checkout/${p.id}?purpose=featured`} className="btn btn-sm border border-purple-200 text-purple-700 hover:bg-purple-50 flex-1 text-center">
+                            Feature Listing
+                          </Link>
+                        )}
+                      </div>
                     )}
                     <div className="mt-auto pt-3 flex gap-2 border-t border-gray-50">
                       <Link href={propertyHref(p.id, p.title)} className="btn btn-sm btn-ghost flex-1 text-center">

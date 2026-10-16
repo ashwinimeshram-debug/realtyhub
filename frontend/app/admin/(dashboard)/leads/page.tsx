@@ -125,11 +125,12 @@ function slaBadgeFor(lead: Pick<Lead, "first_response_at" | "sla_due_at" | "sla_
 
 export default function LeadsPage() {
   const { toast } = useToast();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, hasPermission, loading: authLoading } = useAuth();
   const [tab, setTab] = useState<TabMode>("active");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [archivedLeads, setArchivedLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [stats, setStats] = useState({ new_today: 0, site_visits: 0, followups_overdue: 0, followups_today: 0, followups_upcoming: 0, won_month: 0, lost_month: 0, no_action: 0 });
 
   const [search, setSearch] = useState("");
@@ -148,8 +149,8 @@ export default function LeadsPage() {
       const qs = params.toString();
       const statsRes = await API.get(`/admin/leads/stats${qs ? `?${qs}` : ""}`);
       setStats(statsRes.data);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err?.response?.status !== 403) console.error(err);
     }
   }, []);
 
@@ -160,8 +161,9 @@ export default function LeadsPage() {
       if (employeeFilter) params.set("assigned_to", String(employeeFilter));
       const res = await API.get(`/admin/leads${params.toString() ? `?${params}` : ""}`);
       setLeads(res.data?.items ?? []);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err?.response?.status === 403) setAccessDenied(true);
+      else console.error(err);
     }
   };
 
@@ -172,15 +174,21 @@ export default function LeadsPage() {
       if (s) params.set("search", s);
       const res = await API.get(`/admin/leads/archived${params.toString() ? `?${params}` : ""}`);
       setArchivedLeads(res.data?.items ?? []);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err?.response?.status !== 403) console.error(err);
     }
   };
 
   const fetchData = async () => {
+    if (!hasPermission("leads.view")) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     await Promise.all([fetchLeads(), fetchStats(employeeFilter)]);
     setLoading(false);
+    if (!hasPermission("leads.assign")) return;
     try {
       const execRes = await API.get("/admin/leads/executives");
       setExecutives(execRes.data);
@@ -188,11 +196,12 @@ export default function LeadsPage() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     fetchData();
     API.get("/admin/settings").then((r) => {
       setAutoAssign(r.data.auto_assign_leads === "true");
     }).catch(() => {});
-  }, []);
+  }, [authLoading]);
 
   useEffect(() => {
     if (!loading) {
@@ -225,8 +234,8 @@ export default function LeadsPage() {
     try {
       const res = await API.get(`/admin/leads/${leadId}`);
       setSelectedLead(res.data);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err?.response?.status !== 403) console.error(err);
     }
   };
 
@@ -300,6 +309,15 @@ export default function LeadsPage() {
 
   if (loading) {
     return <div className="p-3 md:p-6">Loading...</div>;
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="p-3 md:p-6">
+        <h1 className="text-2xl font-bold text-gray-800">Leads</h1>
+        <p className="text-sm text-red-600 mt-4">You don&apos;t have permission to view leads.</p>
+      </div>
+    );
   }
 
   return (
@@ -452,7 +470,8 @@ export default function LeadsPage() {
           leads={filteredLeads}
           onLeadClick={openLeadDetail}
           onRefresh={fetchLeads}
-          onClaim={!isAdmin ? handleClaim : undefined}
+          onClaim={!isAdmin && hasPermission("leads.assign") ? handleClaim : undefined}
+          canDrag={hasPermission("leads.update")}
         />
       )}
 
@@ -496,11 +515,13 @@ function PipelineView({
   onLeadClick,
   onRefresh,
   onClaim,
+  canDrag,
 }: {
   leads: Lead[];
   onLeadClick: (id: number) => void;
   onRefresh: () => void;
   onClaim?: (id: number) => void;
+  canDrag?: boolean;
 }) {
   const [overrideStage, setOverrideStage] = useState<Stage | null>(null);
   const sensors = useSensors(
@@ -508,6 +529,7 @@ function PipelineView({
   );
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    if (!canDrag) return;
     const { active, over } = event;
     if (!over) return;
     const leadId = Number(active.id);
@@ -571,6 +593,7 @@ function PipelineView({
                         lead={lead}
                         onClick={() => onLeadClick(lead.id)}
                         onClaim={onClaim}
+                        draggable={canDrag}
                       />
                     ))}
                   </div>
@@ -588,7 +611,7 @@ function PipelineView({
 // =====================
 // PIPELINE CARD
 // =====================
-function PipelineCard({ lead, onClick, onClaim }: { lead: Lead; onClick: () => void; onClaim?: (id: number) => void }) {
+function PipelineCard({ lead, onClick, onClaim, draggable = true }: { lead: Lead; onClick: () => void; onClaim?: (id: number) => void; draggable?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id });
 
@@ -606,8 +629,8 @@ function PipelineCard({ lead, onClick, onClaim }: { lead: Lead; onClick: () => v
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...(draggable ? attributes : {})}
+      {...(draggable ? listeners : {})}
       onClick={onClick}
       className={`bg-white rounded-lg p-3 shadow-sm border cursor-pointer hover:shadow-md transition ${
         badge.border ? `border ${badge.border}` : ""

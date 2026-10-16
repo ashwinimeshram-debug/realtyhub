@@ -9,17 +9,90 @@ import "swiper/css";
 import "swiper/css/pagination";
 import SectionHeader from "./SectionHeader";
 
+function FeaturedCard({ p }: { p: any }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden card-hover flex flex-col h-full">
+      <div className="relative">
+        {p.images && p.images.length > 0 ? (
+          <div className="relative aspect-[16/10] w-full overflow-hidden">
+            <Image
+              src={backendAssetUrl(p.images[0])}
+              alt={p.title || "Property"}
+              fill
+              sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className="object-cover object-top"
+            />
+          </div>
+        ) : (
+          <div className="w-full aspect-[16/10] bg-gray-200 flex items-center justify-center text-gray-400 text-sm">No Image</div>
+        )}
+        {p.is_featured && (
+          <span className="absolute top-2 left-2 bg-yellow-400 text-xs px-2 py-1 rounded font-medium">Featured</span>
+        )}
+      </div>
+      <div className="p-6 flex flex-col flex-1">
+        <h3 className="font-semibold text-lg text-gray-800">{p.title || "No Title"}</h3>
+        <p className="font-bold mt-1 text-base" style={{ color: "var(--primary)" }}>
+          {formatPriceDisplay(p.price, p.price_text)}
+        </p>
+        <p className="text-gray-500 text-sm mt-1">{p.location || ""}</p>
+        <a href={propertyHref(p.id, p.title)} className="mt-3 inline-block text-sm font-medium" style={{ color: "var(--primary)" }}>
+          View Details →
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function CarouselRow({ items }: { items: any[] }) {
+  return (
+    <Swiper
+      modules={[Autoplay, Pagination]}
+      spaceBetween={24}
+      slidesPerView={1}
+      breakpoints={{
+        640: { slidesPerView: 2 },
+        768: { slidesPerView: 3 },
+        1024: { slidesPerView: 4 },
+      }}
+      autoplay={{ delay: 4000, disableOnInteraction: false }}
+      pagination={{ clickable: true }}
+      loop={items.length > 4}
+      className="featured-swiper pb-12"
+    >
+      {items.map((p: any) => (
+        <SwiperSlide key={p.id}>
+          <FeaturedCard p={p} />
+        </SwiperSlide>
+      ))}
+    </Swiper>
+  );
+}
+
 export default function FeaturedCarousel({
   featured,
+  splitThreshold = 8,
   title,
   subtitle,
   align,
 }: {
   featured: any[];
+  splitThreshold?: number;
   title?: string;
   subtitle?: string;
   align?: string;
 }) {
+  const total = featured.length;
+  const threshold = Number.isFinite(splitThreshold) && splitThreshold >= 2 ? splitThreshold : 8;
+
+  let row1: any[] = featured;
+  let row2: any[] = [];
+  if (total >= threshold) {
+    const splitIdx = Math.ceil(total / 2);
+    row1 = featured.slice(0, splitIdx);
+    row2 = featured.slice(splitIdx);
+  }
+
   return (
     <section className="py-10 md:py-14 px-4 md:px-10">
       <SectionHeader
@@ -27,60 +100,15 @@ export default function FeaturedCarousel({
         subtitle={subtitle || "Handpicked premium properties in prime locations across Nagpur"}
         align={align}
       />
-      {featured.length > 0 ? (
-        <Swiper
-          modules={[Autoplay, Pagination]}
-          spaceBetween={24}
-          slidesPerView={1}
-          breakpoints={{
-            640: { slidesPerView: 2 },
-            768: { slidesPerView: 3 },
-            1024: { slidesPerView: 4 },
-          }}
-          autoplay={{ delay: 4000, disableOnInteraction: false }}
-          pagination={{ clickable: true }}
-          loop={featured.length > 4}
-          className="featured-swiper pb-12"
-        >
-          {featured.map((p: any) => (
-            <SwiperSlide key={p.id}>
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden card-hover flex flex-col h-full">
-                <div className="relative">
-                  {p.images && p.images.length > 0 ? (
-                    <div className="relative aspect-[16/10] w-full overflow-hidden">
-                      <Image
-                        src={backendAssetUrl(p.images[0])}
-                        alt={p.title || "Property"}
-                        fill
-                        sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                        className="object-cover object-top"
-                      />
-                    </div>
-                  ) : (
-                    <div className="w-full aspect-[16/10] bg-gray-200 flex items-center justify-center text-gray-400 text-sm">No Image</div>
-                  )}
-                  {p.is_featured && (
-                    <span className="absolute top-2 left-2 bg-yellow-400 text-xs px-2 py-1 rounded font-medium">Featured</span>
-                  )}
-                </div>
-                <div className="p-6 flex flex-col flex-1">
-                  <h3 className="font-semibold text-lg text-gray-800">{p.title || "No Title"}</h3>
-                  <p className="font-bold mt-1 text-base" style={{ color: "var(--primary)" }}>
-                    {formatPriceDisplay(p.price, p.price_text)}
-                  </p>
-                  <p className="text-gray-500 text-sm mt-1">{p.location || ""}</p>
-                  <a href={propertyHref(p.id, p.title)} className="mt-3 inline-block text-sm font-medium" style={{ color: "var(--primary)" }}>
-                    View Details →
-                  </a>
-                </div>
-              </div>
-            </SwiperSlide>
-          ))}
-        </Swiper>
+      {total > 0 ? (
+        <div className="space-y-6">
+          <CarouselRow items={row1} />
+          {row2.length > 0 && <CarouselRow items={row2} />}
+        </div>
       ) : (
         <p className="text-gray-400 text-center">No featured properties yet</p>
       )}
-      {featured.length > 0 && (
+      {total > 0 && (
         <div className="mt-10 text-center">
           <a href="/properties" className="btn btn-secondary btn-lg">
             View All Listings

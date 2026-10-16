@@ -4,8 +4,11 @@ from models.models import db, Admin, Owner, Property, PropertyImage, PropertyCon
 from utils.helpers import generate_listing_id, paginate
 from sqlalchemy import or_, func
 from utils.search import apply_property_filters
+from utils.listing_lifecycle import (
+    public_visible_condition, owner_visible_condition,
+)
 from utils.mailer import (
-    connect_ack_visitor_email, connect_owner_email, new_lead_email,
+    connect_ack_visitor_email, connect_owner_email, get_site_name, new_lead_email,
     send_email_async, submission_received_email, submission_confirmed_email,
 )
 from routes.settings_routes import is_setting_enabled
@@ -29,7 +32,7 @@ VALID_PAGES = Config.VALID_PAGES
 
 def _owner_visible_condition():
     """Properties with no owner (staff/imported) or whose owner is active."""
-    return or_(Property.owner_id.is_(None), Property.owner.has(Owner.is_active == True))
+    return owner_visible_condition()
 
 
 def _validate_file(file):
@@ -104,7 +107,6 @@ def submit_property():
         if not data.get(field):
             return jsonify({"error": f"{field} is required"}), 400
 
-    auto_approve = is_setting_enabled("auto_approve_properties")
     try:
         price = _parse_price(data.get("price"))
         price_text = (data.get("price_text") or "").strip() or "*"
@@ -117,8 +119,10 @@ def submit_property():
             longitude=_parse_coord(data.get("longitude"), -180, 180),
             transaction_type=data.get("transaction_type"),
             property_type=data.get("property_type"),
-            status="approved" if auto_approve else "pending",
-            is_active=auto_approve,
+            listed_by=data.get("listed_by") if data.get("listed_by") in ("owner", "agent", "broker") else "owner",
+            status="pending",
+            is_active=False,
+            payment_status="unpaid",
             owner_id=owner.id,
             overview_template_id=int(data["overview_template_id"]) if data.get("overview_template_id") and data["overview_template_id"].isdigit() else None,
             closing_template_id=int(data["closing_template_id"]) if data.get("closing_template_id") and data["closing_template_id"].isdigit() else None,
@@ -128,6 +132,16 @@ def submit_property():
         db.session.commit()
         prop.listing_id = generate_listing_id(prop.id)
         db.session.commit()
+
+        # Publication policy: with the free-listing bypass ON the listing is
+        # published immediately (waived, still time-limited). With it OFF the
+        # listing stays unpaid and hidden until the owner pays for it.
+        from utils.listing_lifecycle import payment_required, waive_listing, plan_for
+        published_now = False
+        if not payment_required():
+            waive_listing(prop, plan_for(prop.transaction_type)["duration_days"])
+            published_now = True
+            db.session.commit()
 
         owner_mobile = data.get("mobile", "").strip() or owner.mobile
         db.session.add(PropertyContact(
@@ -195,22 +209,26 @@ def submit_property():
             except Exception as e:
                 logger.warning("Failed to parse feature_ids for submission: %s", e)
 
-        if auto_approve:
+        if published_now:
             send_email_async(
-                "Property published - Nagpur Realty Hub",
+                f"Property published - {get_site_name()}",
                 [owner.email],
                 submission_confirmed_email(prop, owner.name),
             )
         else:
+            from utils.mailer import listing_payment_required_email
             send_email_async(
-                "Property submitted for review - Nagpur Realty Hub",
+                f"Complete payment to publish - {get_site_name()}",
                 [owner.email],
-                submission_received_email(prop, owner.name),
+                listing_payment_required_email(prop, owner.name),
             )
         return jsonify({
-            "message": "Property published" if auto_approve else "Property submitted for review",
+            "message": "Property published" if published_now else "Listing saved. Complete payment to publish.",
             "listing_id": prop.listing_id,
             "status": prop.status,
+            "published_now": published_now,
+            "payment_required": not published_now,
+            "property_id": prop.id,
         })
     except Exception as e:
         db.session.rollback()
@@ -219,10 +237,7 @@ def submit_property():
 
 @public_bp.route("/properties", methods=["GET"])
 def get_properties():
-    query = Property.query.filter(
-        Property.status == "approved", Property.is_active == True, Property.is_closed == False,
-        _owner_visible_condition(),
-    )
+    query = Property.query.filter(public_visible_condition())
 
     near = request.args.get("near")
     keyword = request.args.get("q")
@@ -260,6 +275,7 @@ def get_properties():
             "price": float(p.price) if p.price is not None else None, "price_text": p.price_text or "*", "location": p.location,
             "is_featured": p.is_featured, "is_verified": p.is_verified,
             "property_type": p.property_type, "transaction_type": p.transaction_type,
+            "listed_by": p.listed_by or "owner",
             "latitude": float(p.latitude) if p.latitude is not None else None,
             "longitude": float(p.longitude) if p.longitude is not None else None,
             "images": [img.image_url for img in p.images],
@@ -285,6 +301,7 @@ def get_property_detail(id):
         "id": prop.id, "listing_id": prop.listing_id, "title": prop.title,
         "description": prop.description, "price": float(prop.price) if prop.price is not None else None,
         "price_text": prop.price_text or "*", "location": prop.location, "transaction_type": prop.transaction_type,
+        "listed_by": prop.listed_by or "owner",
         "latitude": float(prop.latitude) if prop.latitude is not None else None,
         "longitude": float(prop.longitude) if prop.longitude is not None else None,
         "property_type": prop.property_type, "is_featured": prop.is_featured,
@@ -316,6 +333,12 @@ def property_contact(id):
         return jsonify({"error": "Property not found"}), 404
     if prop.owner_id and (not prop.owner or not prop.owner.is_active):
         return jsonify({"error": "Property not found"}), 404
+    # A listing must be live to accept enquiries. Unpaid, grace and expired
+    # listings still take leads (they unlock on payment/renewal), but listings
+    # that were never approved, were rejected, or were closed by the owner do
+    # not — report 404 so their existence is not leaked.
+    if prop.status in ("pending", "rejected") or prop.is_closed:
+        return jsonify({"error": "Property not found"}), 404
 
     lead = Lead(name=name, email=email, mobile=mobile, source="connect", property_id=id)
     from utils.sla import apply_sla
@@ -334,7 +357,7 @@ def property_contact(id):
 
     if email:
         send_email_async(
-            "Enquiry received - Nagpur Realty Hub",
+            f"Enquiry received - {get_site_name()}",
             [email],
             connect_ack_visitor_email(name, prop),
         )
@@ -356,7 +379,7 @@ def property_contact(id):
     recipients = list(dict.fromkeys(r for r in recipients if r))
     if recipients:
         send_email_async(
-            "New visitor enquiry - Nagpur Realty Hub",
+            f"New visitor enquiry - {get_site_name()}",
             recipients,
             new_lead_email(lead, prop, owner_handled),
         )
@@ -514,10 +537,31 @@ def location_counts():
     rows = db.session.query(
         Property.location, func.count(Property.id).label("count")
     ).filter(
-        Property.status == "approved", Property.is_active == True, Property.is_closed == False,
-        _owner_visible_condition(),
+        public_visible_condition(),
     ).group_by(Property.location).order_by(func.count(Property.id).desc()).all()
-    resp = jsonify([{"name": r[0], "count": r[1]} for r in rows if r[0]])
+
+    counts = {}
+    for name, count in rows:
+        if name and str(name).strip():
+            counts[str(name).strip()] = count
+
+    # Areas users asked to be alerted about are kept even when no listing exists
+    # there yet, so an area typed by one visitor shows up for everyone else.
+    import json as _json
+    from models.models import SavedSearch
+    for (params_raw,) in db.session.query(SavedSearch.params).filter(
+        SavedSearch.is_active.is_(True)
+    ).all():
+        try:
+            params = _json.loads(params_raw or "{}")
+        except (ValueError, TypeError):
+            continue
+        loc = str(params.get("location") or "").strip()
+        if loc and loc not in counts:
+            counts[loc] = 0
+
+    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+    resp = jsonify([{"name": name, "count": count} for name, count in ordered])
     resp.headers["Cache-Control"] = "public, max-age=300"
     return resp
 
@@ -527,8 +571,7 @@ def sitemap_data():
     """Lightweight listing index (id/title/updated_at) for XML sitemap generation."""
     rows = (
         Property.query.filter(
-            Property.status == "approved", Property.is_active == True, Property.is_closed == False,
-            _owner_visible_condition(),
+            public_visible_condition(),
         )
         .with_entities(Property.id, Property.title, Property.updated_at)
         .order_by(Property.updated_at.desc())

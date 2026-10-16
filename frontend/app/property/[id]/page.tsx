@@ -34,7 +34,7 @@ export async function generateMetadata({ params }: PropertyParams): Promise<Meta
     priceText,
     property.location,
     property.property_type,
-    property.transaction_type === "rent" ? "for rent" : "for sale",
+    property.transaction_type === "rent" ? "for rent" : property.transaction_type === "resale" ? "for resale" : property.transaction_type === "buy" ? "to buy" : "for sale",
   ]
     .filter(Boolean)
     .join(" · ");

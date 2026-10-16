@@ -216,6 +216,21 @@ export default function PropertiesListPage() {
                           }`}>
                             {property.is_closed ? "Closed" : property.status === "approved" ? "Approved" : property.status === "rejected" ? "Rejected" : "Pending"}
                           </span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {property.featured_until && new Date(property.featured_until) > new Date() && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700">★ Featured</span>
+                            )}
+                            {property.payment_status === "unpaid" && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700">Unpaid</span>
+                            )}
+                            {property.expires_at && property.status === "approved" && !property.is_closed && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                new Date(property.expires_at) < new Date() ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-500"
+                              }`}>
+                                {new Date(property.expires_at) < new Date() ? "Expired" : `Exp ${new Date(property.expires_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3 text-gray-600 hidden md:table-cell text-xs">
                           {property.owner_name || "-"}

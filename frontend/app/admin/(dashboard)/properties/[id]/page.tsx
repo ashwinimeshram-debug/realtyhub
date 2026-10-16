@@ -12,7 +12,7 @@ import PriceInput from "@/components/post-property/PriceInput";
 
 type TemplateMap = Record<string, Array<{ id: number; template_text: string }>>;
 
-const TXN_BUYER_LABEL: Record<string, string> = { sell: "Buy", rent: "Rent" };
+const TXN_LABELS: Record<string, string> = { buy: "Buy", sell: "Sell", rent: "Rent", resale: "Resale" };
 
 function fillTemplate(text: string, vars: Record<string, string>, typeNames: Record<string, string>, useTransactionLabel = true): string {
   return text.replace(/\{(\w+)\}/g, (_, key) => {
@@ -20,7 +20,7 @@ function fillTemplate(text: string, vars: Record<string, string>, typeNames: Rec
     if (key === "transaction_type") {
       const val = vars[key];
       if (!val) return "[...]";
-      return useTransactionLabel ? (TXN_BUYER_LABEL[val] || val) : val;
+      return useTransactionLabel ? (TXN_LABELS[val] || val) : val;
     }
     return vars[key] || "[...]";
   });
@@ -66,6 +66,7 @@ export default function PropertyDetail() {
   const [presetFeatures, setPresetFeatures] = useState<Array<{ id: number; label: string; sentence: string }>>([]);
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
 
   const typeNames = useMemo(() => Object.fromEntries(propertyTypes.map((t) => [t.value, t.name])), [propertyTypes]);
 
@@ -177,6 +178,7 @@ export default function PropertyDetail() {
         description: p.description || "",
         transaction_type: p.transaction_type || "",
         property_type: p.property_type || "",
+        listed_by: p.listed_by || "owner",
         location: p.location || "",
         price: p.price != null && Number(p.price) > 0 ? String(p.price) : "",
         price_text: p.price_text || "*",
@@ -257,6 +259,7 @@ export default function PropertyDetail() {
     if (!priceRequestOnly && !String(form.price).trim()) { toast("Price is required", "warning"); return; }
     if (!priceRequestOnly && String(form.price).trim() && isNaN(Number(form.price.replace(/[₹$,\s]/g, "")))) { toast("Please enter a valid price", "warning"); return; }
     if (!form.location?.trim()) { toast("Location is required", "warning"); return; }
+    if (!form.listed_by) { toast("Please select Listed By", "warning"); return; }
 
     for (const field of dynamicFields) {
       if (field.is_required && (!fieldValues[field.field_key] || fieldValues[field.field_key] === "")) {
@@ -329,6 +332,20 @@ export default function PropertyDetail() {
     }
   };
 
+  const lifecycleAction = async (path: string, body: Record<string, any> = {}) => {
+    setLifecycleBusy(true);
+    try {
+      await API.post(path, body);
+      toast("Listing updated", "success");
+      await fetchProperty();
+    } catch (err: any) {
+      if (err?.response?.status === 401) router.replace("/admin");
+      else toast(err?.response?.data?.error || "Action failed", "error");
+    } finally {
+      setLifecycleBusy(false);
+    }
+  };
+
   if (loading) return <div className="p-3 md:p-6">Loading...</div>;
   if (!propertyId) return (
     <div className="p-3 md:p-6 text-center">
@@ -369,6 +386,55 @@ export default function PropertyDetail() {
         </div>
       </div>
 
+      {property.owner_id != null && (() => {
+        const expMs = property.expires_at ? new Date(property.expires_at).getTime() : null;
+        const expired = expMs != null && expMs < Date.now();
+        const paidCls = property.payment_status === "paid" ? "bg-emerald-100 text-emerald-700"
+          : property.payment_status === "waived" ? "bg-blue-100 text-blue-700"
+          : "bg-orange-100 text-orange-700";
+        const featured = property.featured_until && new Date(property.featured_until) > new Date();
+        return (
+          <div className="max-w-4xl mx-auto mb-4 rounded-xl bg-white shadow border border-gray-100 p-4">
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <h2 className="font-semibold text-gray-800">Listing Status</h2>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${paidCls}`}>
+                Payment: {property.payment_status}
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                expired ? "bg-red-100 text-red-600" : expMs ? "bg-gray-100 text-gray-600" : "bg-gray-100 text-gray-500"
+              }`}>
+                {expMs ? (expired ? "Expired " : "Expires ") + new Date(property.expires_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "No expiry"}
+              </span>
+              {featured && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+                  ★ Featured until {new Date(property.featured_until).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {property.payment_status !== "paid" && (
+                <button disabled={lifecycleBusy} onClick={() => lifecycleAction(`/admin/payments/properties/${propertyId}/waive`)}
+                  className="px-3 py-1.5 rounded text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">
+                  Waive Payment & Publish
+                </button>
+              )}
+              <button disabled={lifecycleBusy} onClick={() => lifecycleAction(`/admin/payments/properties/${propertyId}/grant-days`, { duration_days: 30 })}
+                className="px-3 py-1.5 rounded text-sm border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                Grant +30 days
+              </button>
+              <button disabled={lifecycleBusy} onClick={() => lifecycleAction(`/admin/payments/properties/${propertyId}/grant-days`, { duration_days: 90 })}
+                className="px-3 py-1.5 rounded text-sm border border-gray-300 hover:bg-gray-50 disabled:opacity-50">
+                Grant +90 days
+              </button>
+              <button disabled={lifecycleBusy} onClick={() => lifecycleAction(`/admin/payments/properties/${propertyId}/feature`, { featured_days: 30 })}
+                className="px-3 py-1.5 rounded text-sm border border-yellow-300 text-yellow-700 hover:bg-yellow-50 disabled:opacity-50">
+                ★ Feature 30 days
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="max-w-4xl mx-auto">
         {property?.uploader?.user_id && (
           <div className="mb-3 inline-flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-full text-xs text-gray-600">
@@ -400,6 +466,15 @@ export default function PropertyDetail() {
                 <select className={inputClass} disabled={isDisabled} value={form.property_type || ""} onChange={(e) => setForm({ ...form, property_type: e.target.value })}>
                   <option value="">Select Type</option>
                   {propertyTypes.map((t) => (<option key={t.value} value={t.value}>{t.name}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Listed By <span className="text-red-500">*</span></label>
+                <select className={inputClass} disabled={isDisabled} value={form.listed_by || ""} onChange={(e) => setForm({ ...form, listed_by: e.target.value })}>
+                  <option value="">Select</option>
+                  <option value="owner">Owner</option>
+                  <option value="agent">Agent</option>
+                  <option value="broker">Broker</option>
                 </select>
               </div>
             </div>

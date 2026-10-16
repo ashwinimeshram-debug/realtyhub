@@ -131,7 +131,7 @@ export default async function Home() {
   } = await getHomeData();
 
   const isVisible = (key: string) => settings[key] !== "false";
-  const siteName = (settings.site_name || "").trim() || "Nagpur Realty Hub";
+  const siteName = (settings.site_name || "").trim() || "Realty Hub";
   const faqForSchema =
     faqs.length > 0
       ? faqs.map((f: any) => ({ id: f.id, question: f.question, answer: f.answer }))
@@ -175,9 +175,12 @@ export default async function Home() {
       if (settingKey && !isVisible(settingKey)) return null;
       let node: React.ReactNode = null;
       if (key === "featured") {
+        const parsedSplit = parseInt(settings["section_featured_split"] || "8", 10);
+        const splitThreshold = Math.min(Math.max(Number.isFinite(parsedSplit) ? parsedSplit : 8, 2), 50);
         node = (
           <FeaturedCarousel
             featured={featured}
+            splitThreshold={splitThreshold}
             title={settings["section_featured_title"]}
             subtitle={settings["section_featured_subtitle"]}
             align={settings["section_featured_align"]}
@@ -234,7 +237,7 @@ export default async function Home() {
   return (
     <div>
       <h1 className="sr-only">
-        {siteName} — Verified Properties for Sale and Rent in Nagpur
+        {siteName} — Verified Properties for Sale, Resale and Rent in Nagpur
       </h1>
       {faqForSchema.length > 0 && (
         <JsonLd data={buildFaqGraph(faqForSchema, `${SITE_URL}/`)} />

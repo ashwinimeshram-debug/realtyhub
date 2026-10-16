@@ -246,6 +246,33 @@ select.form-input {
 .testimonials-swiper .swiper-slide > * {
   width: 100%;
 }
+
+/* Pre-hydration slide widths: Swiper core CSS defaults slides to width:100%,
+   which makes cards render full-width on first paint and then shrink once
+   Swiper initialises (a jarring "big then small" flash). These widths match
+   the slidesPerView breakpoints; Swiper overrides them with inline widths on
+   init, so they only affect the initial paint. */
+.featured-swiper .swiper-slide,
+.testimonials-swiper .swiper-slide {
+  width: 100%;
+}
+@media (min-width: 640px) {
+  .featured-swiper .swiper-slide,
+  .testimonials-swiper .swiper-slide {
+    width: 50%;
+  }
+}
+@media (min-width: 768px) {
+  .featured-swiper .swiper-slide,
+  .testimonials-swiper .swiper-slide {
+    width: 33.3333%;
+  }
+}
+@media (min-width: 1024px) {
+  .featured-swiper .swiper-slide {
+    width: 25%;
+  }
+}
 .testimonials-swiper .swiper-pagination-bullet {
   background: var(--primary);
   opacity: 0.3;

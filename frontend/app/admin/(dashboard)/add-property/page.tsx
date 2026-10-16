@@ -22,7 +22,7 @@ function SectionHeader({ icon, title, right }: { icon: React.ReactNode; title: s
 
 type TemplateMap = Record<string, Array<{ id: number; template_text: string }>>;
 
-const TXN_BUYER_LABEL: Record<string, string> = { sell: "Buy", rent: "Rent" };
+const TXN_LABELS: Record<string, string> = { buy: "Buy", sell: "Sell", rent: "Rent", resale: "Resale" };
 
 function fillTemplate(text: string, vars: Record<string, string>, typeNames: Record<string, string>, useTransactionLabel = true): string {
   return text.replace(/\{(\w+)\}/g, (_, key) => {
@@ -30,7 +30,7 @@ function fillTemplate(text: string, vars: Record<string, string>, typeNames: Rec
     if (key === "transaction_type") {
       const val = vars[key];
       if (!val) return "[...]";
-      return useTransactionLabel ? (TXN_BUYER_LABEL[val] || val) : val;
+      return useTransactionLabel ? (TXN_LABELS[val] || val) : val;
     }
     return vars[key] || "[...]";
   });
@@ -141,6 +141,7 @@ export default function AddPropertyPage() {
         description: p.description || "",
         transaction_type: p.transaction_type || "",
         property_type: p.property_type || "",
+        listed_by: p.listed_by || "owner",
         location: p.location || "",
         latitude: p.latitude != null ? String(p.latitude) : "",
         longitude: p.longitude != null ? String(p.longitude) : "",
@@ -206,8 +207,9 @@ export default function AddPropertyPage() {
     if (!priceRequestOnly && !form.price?.trim()) { toast("Please enter a price", "warning"); return; }
     if (!priceRequestOnly && form.price?.trim() && isNaN(Number(form.price.replace(/[₹$,\s]/g, "")))) { toast("Please enter a valid price", "warning"); return; }
     if (!form.location?.trim()) { toast("Please enter a location", "warning"); return; }
-        if (!form.transaction_type) { toast("Please select Buy or Rent", "warning"); return; }
+    if (!form.transaction_type) { toast("Please select a listing intent", "warning"); return; }
     if (!form.property_type) { toast("Please select a property type", "warning"); return; }
+    if (!form.listed_by) { toast("Please select Listed By", "warning"); return; }
 
     for (const field of dynamicFields) {
       if (field.is_required && (!fieldValues[field.field_key] || fieldValues[field.field_key] === "")) {
@@ -363,6 +365,15 @@ export default function AddPropertyPage() {
                 <select className={inputClass} disabled={isDisabled} value={form.property_type || ""} onChange={(e) => setForm({ ...form, property_type: e.target.value })}>
                   <option value="">Select Type</option>
                   {propertyTypes.map((t) => (<option key={t.value} value={t.value}>{t.name}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Listed By <span className="text-red-500">*</span></label>
+                <select className={inputClass} disabled={isDisabled} value={form.listed_by || ""} onChange={(e) => setForm({ ...form, listed_by: e.target.value })}>
+                  <option value="">Select</option>
+                  <option value="owner">Owner</option>
+                  <option value="agent">Agent</option>
+                  <option value="broker">Broker</option>
                 </select>
               </div>
             </div>

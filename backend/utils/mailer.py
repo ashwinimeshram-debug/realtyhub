@@ -91,6 +91,14 @@ def send_email_async(subject, recipients, html):
     threading.Thread(target=_send, daemon=True).start()
 
 
+def get_site_name():
+    """Site/brand name from the DB settings table (fallback to a neutral label)."""
+    from models.setting_model import Setting
+    row = Setting.query.filter_by(skey="site_name").first()
+    name = (row.svalue or "").strip() if row else ""
+    return name or "Realty Hub"
+
+
 def frontend_url(path=""):
     base = current_app.config.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
     return f"{base}/{path.lstrip('/')}" if path else base
@@ -112,18 +120,19 @@ def format_price(prop):
 
 
 def _shell(title, heading, body_rows):
+    site_name = get_site_name()
     rows = "".join(body_rows)
     return f"""
     <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#333;">
       <div style="background:#0f4cba;padding:16px 20px;border-radius:8px 8px 0 0;">
-        <h2 style="color:#ffffff;margin:0;font-size:20px;">Nagpur Realty Hub</h2>
+        <h2 style="color:#ffffff;margin:0;font-size:20px;">{site_name}</h2>
       </div>
       <div style="border:1px solid #e5e7eb;border-top:none;padding:24px 20px;border-radius:0 0 8px 8px;">
         <h3 style="color:#0f4cba;margin-top:0;font-size:17px;">{heading}</h3>
         {rows}
         <p style="color:#9ca3af;font-size:12px;margin-top:28px;border-top:1px solid #e5e7eb;padding-top:14px;">
-          This is an automated message from Nagpur Realty Hub. Please do not reply to this email.<br/>
-          &copy; Nagpur Realty Hub, Nagpur
+          This is an automated message from {site_name}. Please do not reply to this email.<br/>
+          &copy; {site_name}
         </p>
       </div>
     </div>"""
@@ -148,7 +157,7 @@ def verification_email(name, token):
     link = frontend_url(f"verify-email/{token}")
     body = [
         _para(f"Hi {name},"),
-        _para("Thanks for registering as a property owner on Nagpur Realty Hub. "
+        _para(f"Thanks for registering as a property owner on {get_site_name()}. "
               "Please verify your email address to start posting properties."),
         _btn("Verify Email", link),
         _para(f'This link expires in 24 hours. If the button does not work, copy this link:<br/>{link}'),
@@ -260,7 +269,7 @@ def submission_received_email(prop, owner_name):
 def submission_confirmed_email(prop, owner_name):
     body = [
         _para(f"Hi {owner_name},"),
-        _para("Your property has been <strong>approved</strong> and is now live on Nagpur Realty Hub. "
+        _para(f"Your property has been <strong>approved</strong> and is now live on {get_site_name()}. "
               "You will receive an email whenever a visitor shows interest in it."),
         _row("Property", prop.title),
         _row("Listing ID", prop.listing_id or "-"),
@@ -283,6 +292,74 @@ def submission_rejected_email(prop, owner_name):
     return _shell("Rejected", "Property needs changes", body)
 
 
+def listing_payment_required_email(prop, owner_name):
+    body = [
+        _para(f"Hi {owner_name},"),
+        _para("Thanks for submitting your property. Your listing is saved but not live yet — "
+              "complete the one-time payment to publish it and start receiving enquiries."),
+        _row("Property", prop.title),
+        _row("Listing ID", prop.listing_id or "-"),
+        _row("Location", prop.location),
+        _btn("Pay & Publish", frontend_url(f"checkout/{prop.id}?purpose=listing")),
+        _para("You can complete the payment anytime from My Account &rarr; My Properties."),
+    ]
+    return _shell("Payment", "Complete payment to publish your listing", body)
+
+
+def listing_published_email(prop, owner_name):
+    body = [
+        _para(f"Hi {owner_name},"),
+        _para(f"Your payment was received and your property is now <strong>live</strong> on {get_site_name()}. "
+              "You will get an email whenever a visitor shows interest in it."),
+        _row("Property", prop.title),
+        _row("Listing ID", prop.listing_id or "-"),
+        _row("Live until", prop.expires_at.strftime("%d %b %Y") if prop.expires_at else "—"),
+        _btn("View Property", property_url(prop.id)),
+        _para("Track status and connect requests from My Account &rarr; My Properties."),
+    ]
+    return _shell("Published", "Your property is now live", body)
+
+
+def payment_receipt_email(prop, txn, owner_name):
+    purpose = "Featured placement" if txn.purpose == "featured" else "Listing payment"
+    body = [
+        _para(f"Hi {owner_name},"),
+        _para(f"We have received your payment for <strong>{purpose.lower()}</strong>."),
+        _row("Property", prop.title),
+        _row("Listing ID", prop.listing_id or "-"),
+        _row("Amount", f"₹{float(txn.amount):,.0f} {txn.currency}"),
+        _row("Paid on", txn.paid_at.strftime("%d %b %Y %H:%M") if txn.paid_at else "-"),
+        _btn("View My Properties", frontend_url("my-account")),
+        _para(f"Thank you for using {get_site_name()}."),
+    ]
+    return _shell("Payment received", "Payment received", body)
+
+
+def expiry_reminder_email(prop, days_left, renew_url):
+    body = [
+        _para("Your property listing is about to expire and will stop being visible to buyers."),
+        _row("Property", prop.title),
+        _row("Listing ID", prop.listing_id or "-"),
+        _row("Expires in", f"{days_left} day(s)"),
+        _row("Expiry date", prop.expires_at.strftime("%d %b %Y") if prop.expires_at else "-"),
+        _btn("Renew Now", renew_url, "#dc2626"),
+        _para("Renewing keeps your listing live without interruption."),
+    ]
+    return _shell("Expiry reminder", f"Your listing expires in {days_left} day(s)", body)
+
+
+def listing_expired_email(prop):
+    body = [
+        _para(f"Your property listing has expired and is no longer visible on {get_site_name()}."),
+        _row("Property", prop.title),
+        _row("Listing ID", prop.listing_id or "-"),
+        _para("Renew it to go live again and start receiving enquiries."),
+        _btn("Renew Listing", frontend_url(f"checkout/{prop.id}?purpose=listing"), "#dc2626"),
+        _para("You can renew anytime from My Account &rarr; My Properties."),
+    ]
+    return _shell("Expired", "Your listing has expired", body)
+
+
 def contactus_admin_email(contact, admin_name):
     body = [
         _para(f"Hi {admin_name},"),
@@ -298,7 +375,7 @@ def contactus_admin_email(contact, admin_name):
 
 def password_reset_email(reset_link):
     body = [
-        _para("We received a request to reset the password for your Nagpur Realty Hub account."),
+        _para(f"We received a request to reset the password for your {get_site_name()} account."),
         _btn("Reset Password", reset_link),
         _para(f'This link expires in 15 minutes. If the button does not work, copy this link:<br/>{reset_link}'),
         _para("If you did not request this, you can safely ignore this email."),

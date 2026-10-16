@@ -15,7 +15,7 @@ export default async function TermsPage() {
     getPageSections("terms"),
     getSettings(),
   ]);
-  const siteName = (settings.site_name || "").trim() || "Nagpur Realty Hub";
+  const siteName = (settings.site_name || "").trim() || "Realty Hub";
   const replaced = sections.map((s) => ({
     ...s,
     content: s.content.replace(/__SITE_NAME__/g, siteName),

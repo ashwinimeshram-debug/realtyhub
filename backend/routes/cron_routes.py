@@ -11,7 +11,7 @@ from models.models import (
 from models.contactus import Contactus
 from extensions import db
 from utils.mailer import (
-    send_email_async, lead_sla_reminder_email, saved_search_alert_email,
+    send_email_async, get_site_name, lead_sla_reminder_email, saved_search_alert_email,
     frontend_url,
 )
 from utils.messaging import send_whatsapp_async
@@ -155,7 +155,7 @@ def cron_search_alerts():
                 ),
             )
         if saved.phone:
-            lines = [f"Nagpur Realty Hub: {len(matches)} new match(es)"
+            lines = [f"{get_site_name()}: {len(matches)} new match(es)"
                      + (f" ({description})" if description else "") + ":"]
             for prop in matches[:5]:
                 lines.append(f"- {prop.title} - {prop.location}")
@@ -172,6 +172,28 @@ def cron_search_alerts():
         "notified": notified,
         "matches": total_matches,
     })
+
+
+@cron_bp.route("/listings/expire", methods=["POST"])
+def cron_listings_expire():
+    ok, err = _check_cron_key()
+    if not ok:
+        return jsonify({"error": err}), 401
+    from utils.listing_lifecycle import expire_due_listings
+    result = expire_due_listings()
+    result.setdefault("status", "ok")
+    return jsonify(result)
+
+
+@cron_bp.route("/listings/reminders", methods=["POST"])
+def cron_listings_reminders():
+    ok, err = _check_cron_key()
+    if not ok:
+        return jsonify({"error": err}), 401
+    from utils.listing_lifecycle import send_expiry_reminders
+    result = send_expiry_reminders()
+    result.setdefault("status", "ok")
+    return jsonify(result)
 
 
 @cron_bp.route("/retention/cleanup", methods=["POST"])

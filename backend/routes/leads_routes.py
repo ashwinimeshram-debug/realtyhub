@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from utils.helpers import paginate
 from utils.permissions import has_permission
 from utils.sla import apply_sla, mark_first_response
+from utils.leads_scope import internal_lead_condition, is_owner_posted_lead
 
 leads_bp = Blueprint("leads", __name__)
 
@@ -42,6 +43,10 @@ def _least_loaded_executive(executives, lead_count_map=None):
 def _auto_assign_lead(lead):
     """If auto_assign_leads setting is true, assign the lead to the least-loaded executive."""
     from models.setting_model import Setting
+    # Owner-posted property leads are routed to the owner directly and are never
+    # part of the staff pipeline, so they must not be auto-assigned.
+    if is_owner_posted_lead(lead):
+        return
     setting = Setting.query.filter_by(skey="auto_assign_leads").first()
     if not setting or setting.svalue != "true":
         return
@@ -130,9 +135,13 @@ def _perm(code):
 
 
 def _can_access_lead(lead, admin):
-    """Admins see all leads; owners of a listing (manage_own) see their own
-    property leads; everyone else sees only leads assigned to them."""
+    """Admins see all internal leads; owners of a listing (manage_own) see their
+    own property leads; everyone else sees only leads assigned to them.
+    Leads on owner-posted properties are owned by the owner and are off-limits
+    to the staff pipeline."""
     if not admin:
+        return False
+    if is_owner_posted_lead(lead):
         return False
     if admin.role_obj and admin.role_obj.slug == "admin":
         return True
@@ -215,6 +224,10 @@ def get_leads():
             query = query.filter_by(assigned_to=int(assigned_to))
         except (ValueError, TypeError):
             pass
+
+    # Owner-posted property leads are managed by the owner and never appear in
+    # the staff pipeline (admin or employee).
+    query = query.filter(internal_lead_condition())
 
     if status:
         try:
@@ -299,6 +312,8 @@ def assign_lead(id):
     lead = Lead.query.get(id)
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
+    if is_owner_posted_lead(lead):
+        return jsonify({"error": "Owner-managed leads cannot be assigned here"}), 400
     data = request.json or {}
     user_id = data.get("user_id")
     if has_permission(admin, "leads.assign"):
@@ -336,6 +351,7 @@ def auto_assign():
         return jsonify({"message": "No executives available"}), 400
 
     query = Lead.query.filter(Lead.assigned_to.is_(None))
+    query = query.filter(internal_lead_condition())
     if lead_ids:
         query = query.filter(Lead.id.in_(lead_ids))
 
@@ -520,6 +536,8 @@ def get_archived_leads():
     if not is_admin:
         query = query.filter(_lead_scope(current_admin))
 
+    query = query.filter(internal_lead_condition())
+
     if search:
         like = f"%{search}%"
         query = query.filter(
@@ -629,6 +647,8 @@ def lead_stats():
         except (ValueError, TypeError):
             pass
 
+    base_query = base_query.filter(internal_lead_condition())
+
     new_today = base_query.filter(
         Lead.created_at >= today_start, Lead.archived_at.is_(None)
     ).count()
@@ -707,6 +727,9 @@ def get_followups():
     for h in upcoming:
         lead = Lead.query.get(h.lead_id)
         if not lead:
+            continue
+        # Owner-posted property leads are the owner's; skip them entirely.
+        if is_owner_posted_lead(lead):
             continue
         # Non-admins only see their own follow-ups (or those on their listings)
         if not is_admin:

@@ -159,6 +159,20 @@ export default function PropertyDetailClient({
               📍 {property.location}
             </p>
 
+            <div className="flex flex-wrap gap-2 mt-3">
+              {property.transaction_type && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium">
+                  {property.transaction_type === "rent" ? "For Rent" : property.transaction_type === "resale" ? "Resale" : property.transaction_type === "buy" ? "Buy" : "For Sale"}
+                </span>
+              )}
+              {property.property_type && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium capitalize">{property.property_type}</span>
+              )}
+              {property.listed_by && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium capitalize">Listed by {property.listed_by}</span>
+              )}
+            </div>
+
             <ShareButtons
               className="mt-4"
               url={shareUrl}

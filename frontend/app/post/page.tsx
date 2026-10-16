@@ -25,7 +25,7 @@ function SectionHeader({ icon, title, right }: { icon: React.ReactNode; title: s
 
 type TemplateMap = Record<string, Array<{ id: number; template_text: string }>>;
 
-const TXN_BUYER_LABEL: Record<string, string> = { sell: "Buy", rent: "Rent" };
+const TXN_LABELS: Record<string, string> = { buy: "Buy", sell: "Sell", rent: "Rent", resale: "Resale" };
 
 function fillTemplate(text: string, vars: Record<string, string>, typeNames: Record<string, string>, useTransactionLabel = true): string {
   return text.replace(/\{(\w+)\}/g, (_, key) => {
@@ -33,7 +33,7 @@ function fillTemplate(text: string, vars: Record<string, string>, typeNames: Rec
     if (key === "transaction_type") {
       const val = vars[key];
       if (!val) return "[...]";
-      return useTransactionLabel ? (TXN_BUYER_LABEL[val] || val) : val;
+      return useTransactionLabel ? (TXN_LABELS[val] || val) : val;
     }
     return vars[key] || "[...]";
   });
@@ -64,7 +64,8 @@ function PostPropertyForm() {
   const [result, setResult] = useState<any>(null);
   const [propertyTypes, setPropertyTypes] = useState<Array<{ name: string; value: string }>>([]);
   const [transactionTypes, setTransactionTypes] = useState<Array<{ name: string; value: string }>>([]);
-  const [siteName, setSiteName] = useState("Nagpur Realty Hub");
+  const [siteName, setSiteName] = useState("Realty Hub");
+  const [aiLoading, setAiLoading] = useState(false);
 
   const [dynamicFields, setDynamicFields] = useState<FieldDef[]>([]);
   const [fieldValues, setFieldValue] = useState<Record<string, string>>({});
@@ -188,6 +189,7 @@ function PostPropertyForm() {
           location: d.location || "",
           transaction_type: d.transaction_type || "",
           property_type: d.property_type || "",
+          listed_by: d.listed_by || "owner",
           name: d.contact?.name || owner?.name || "",
           email: d.contact?.email || owner?.email || "",
           mobile: d.contact?.mobile || owner?.mobile || "",
@@ -279,8 +281,9 @@ function PostPropertyForm() {
     if (!priceRequestOnly && !form.price?.trim()) { toast("Please enter a price", "warning"); return; }
     if (!priceRequestOnly && form.price?.trim() && isNaN(Number(form.price.replace(/[₹$,\s]/g, "")))) { toast("Please enter a valid price", "warning"); return; }
     if (!form.location?.trim()) { toast("Please enter a location", "warning"); return; }
-    if (!form.transaction_type) { toast("Please select Buy or Rent", "warning"); return; }
+    if (!form.transaction_type) { toast("Please select a listing intent", "warning"); return; }
     if (!form.property_type) { toast("Please select a property type", "warning"); return; }
+    if (!form.listed_by) { toast("Please select Listed By", "warning"); return; }
 
     for (const field of dynamicFields) {
       if (field.is_required && (!fieldValues[field.field_key] || fieldValues[field.field_key] === "")) {
@@ -353,6 +356,34 @@ function PostPropertyForm() {
     }
   };
 
+  const handleGenerateCopy = async () => {
+    if (!form.property_type || !form.transaction_type) {
+      toast("Select a listing intent and property type first", "warning");
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const res = await API.post("/ai/generate-listing", {
+        transaction_type: form.transaction_type,
+        property_type: form.property_type,
+        listed_by: form.listed_by || "owner",
+        location: form.location || "",
+        price_text: form.price_text || "",
+        features: selectedChips,
+      });
+      setForm((prev) => ({
+        ...prev,
+        title: res.data?.title || prev.title,
+        description: res.data?.description || prev.description,
+      }));
+      toast(res.data?.ai_enabled ? "Copy generated with AI" : "Draft copy generated", "success");
+    } catch (err: any) {
+      toast(err?.response?.data?.error || "Could not generate copy", "error");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   if (authLoading || settingsLoading) {
     return <div className="min-h-[50vh] text-center py-20 text-gray-400">Loading...</div>;
   }
@@ -401,24 +432,57 @@ function PostPropertyForm() {
   }
 
   if (submitted && result) {
+    const needsPayment = result.payment_required === true || result.published_now === false;
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "var(--bg-page)" }}>
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${needsPayment ? "bg-amber-100" : "bg-green-100"}`}>
+            {needsPayment ? (
+              <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 12v-2m0 0c-1.11 0-2.08-.402-2.599-1" />
+              </svg>
+            ) : (
+              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            )}
           </div>
-          <h2 className="text-2xl font-bold text-green-700 mb-2">Property Submitted!</h2>
-          <p className="text-gray-600 mb-4">Your property has been submitted successfully and is now pending admin approval. Once approved, it will appear on the property listings.</p>
-          <div className="bg-gray-50 rounded-lg p-4 mb-6 text-sm text-left space-y-1">
-            <p><span className="font-medium">Listing ID:</span> {result.listing_id}</p>
-            <p><span className="font-medium">Status:</span> <span className="text-yellow-600 font-medium">Pending Approval</span></p>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={handleClear} className="btn btn-primary flex-1">Post Another Property</button>
-            <a href="/" className="btn btn-ghost flex-1 text-center">Back to Home</a>
-          </div>
+          {needsPayment ? (
+            <>
+              <h2 className="text-2xl font-bold text-amber-700 mb-2">Almost there!</h2>
+              <p className="text-gray-600 mb-4">
+                Your property details are saved. Complete the one-time payment to publish your listing and start receiving enquiries.
+              </p>
+              <div className="bg-gray-50 rounded-lg p-4 mb-6 text-sm text-left space-y-1">
+                <p><span className="font-medium">Listing ID:</span> {result.listing_id}</p>
+                <p><span className="font-medium">Status:</span> <span className="text-amber-600 font-medium">Payment Pending</span></p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <Link
+                  href={`/checkout/${result.property_id}?purpose=listing`}
+                  className="btn btn-primary w-full"
+                >
+                  Pay &amp; Publish Listing
+                </Link>
+                <Link href="/my-account" className="btn btn-ghost w-full text-center">Go to My Account</Link>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl font-bold text-green-700 mb-2">Property Published!</h2>
+              <p className="text-gray-600 mb-4">
+                Your property is live on the listings and ready to receive enquiries.
+              </p>
+              <div className="bg-gray-50 rounded-lg p-4 mb-6 text-sm text-left space-y-1">
+                <p><span className="font-medium">Listing ID:</span> {result.listing_id}</p>
+                <p><span className="font-medium">Status:</span> <span className="text-green-600 font-medium">Live</span></p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={handleClear} className="btn btn-primary flex-1">Post Another Property</button>
+                <Link href="/my-account" className="btn btn-ghost flex-1 text-center">My Account</Link>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -467,6 +531,15 @@ function PostPropertyForm() {
                 <select className="form-input" value={form.property_type || ""} onChange={(e) => setForm({ ...form, property_type: e.target.value })}>
                   <option value="">Select Type</option>
                   {propertyTypes.map((t) => (<option key={t.value} value={t.value}>{t.name}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Listed By <span className="text-red-500">*</span></label>
+                <select className="form-input" value={form.listed_by || ""} onChange={(e) => setForm({ ...form, listed_by: e.target.value })}>
+                  <option value="">Select</option>
+                  <option value="owner">Owner</option>
+                  <option value="agent">Agent</option>
+                  <option value="broker">Broker</option>
                 </select>
               </div>
             </div>
@@ -588,6 +661,19 @@ function PostPropertyForm() {
               icon={<svg className="w-5 h-5" style={{ color: "var(--primary)" }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>}
               title="Property Title & Description"
             />
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Let AI draft a title and description from the details you entered above.</p>
+              <button
+                type="button"
+                onClick={handleGenerateCopy}
+                disabled={aiLoading}
+                className="btn btn-ghost text-sm inline-flex items-center gap-2 shrink-0"
+              >
+                {aiLoading ? (
+                  <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Generating...</>
+                ) : "✨ Generate with AI"}
+              </button>
+            </div>
             <div className="space-y-4 mb-6">
               <div>
                 <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-dark)" }}>Property Title <span className="text-red-500">*</span></label>

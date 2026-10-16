@@ -54,14 +54,20 @@ export interface HomeData {
 }
 
 export async function getHomeData(): Promise<HomeData> {
-  const [settingsRes, heroRes, servicesRes, advantagesRes, testimonialsRes, featuredRes, faqsRes, allRes] =
+  const settingsRes = await getSettings();
+  const settings =
+    settingsRes && typeof settingsRes === "object"
+      ? (settingsRes as Record<string, string>)
+      : {};
+  const parsedFeatCount = parseInt(settings["section_featured_count"] || "20", 10);
+  const featCount = Math.min(Math.max(Number.isFinite(parsedFeatCount) ? parsedFeatCount : 20, 1), 50);
+  const [heroRes, servicesRes, advantagesRes, testimonialsRes, featuredRes, faqsRes, allRes] =
     await Promise.all([
-      getSettings(),
       fetchJson("/hero"),
       fetchJson("/services"),
       fetchJson("/advantages"),
       fetchJson("/testimonials"),
-      fetchJson("/properties?featured=true"),
+      fetchJson(`/properties?featured=true&per_page=${featCount}`),
       fetchJson("/faq"),
       fetchJson("/properties"),
     ]);
@@ -69,10 +75,6 @@ export async function getHomeData(): Promise<HomeData> {
   const list = (v: any) => (Array.isArray(v) ? v : v?.items || []);
   const items = (v: any) => (Array.isArray(v) ? v : v?.items || []);
 
-  const settings =
-    settingsRes && typeof settingsRes === "object"
-      ? (settingsRes as Record<string, string>)
-      : {};
   const allProperties = list(allRes);
 
   const parsedCount = parseInt(settings["section_new_count"] || "10", 10);
@@ -84,13 +86,14 @@ export async function getHomeData(): Promise<HomeData> {
     _isNew: p.created_at ? now - new Date(p.created_at).getTime() < weekMs : false,
   }));
 
+  const featured = list(featuredRes).slice(0, featCount);
   return {
     settings,
     heroSlides: items(heroRes),
     services: items(servicesRes),
     advantages: items(advantagesRes),
     testimonials: items(testimonialsRes),
-    featured: list(featuredRes),
+    featured,
     faqs: items(faqsRes),
     allProperties,
     latest,

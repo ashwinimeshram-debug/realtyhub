@@ -357,7 +357,7 @@ export default function SettingsPage() {
               type="text"
               value={settings.mail_username || ""}
               onChange={(e) => handleChange("mail_username", e.target.value)}
-              placeholder="info@nagpurrealtyhub.com"
+              placeholder="info@example.com"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -378,7 +378,7 @@ export default function SettingsPage() {
               type="text"
               value={settings.mail_sender || ""}
               onChange={(e) => handleChange("mail_sender", e.target.value)}
-              placeholder="info@nagpurrealtyhub.com"
+              placeholder="info@example.com"
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -586,6 +586,131 @@ export default function SettingsPage() {
             </p>
           </div>
         </label>
+      </div>
+
+      {/* LISTINGS & PAYMENTS */}
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6">
+        <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Listings &amp; Payments</h2>
+        <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
+          Control paid listing publication, prices, validity periods and the payment gateway.
+        </p>
+
+        <label className="flex items-center gap-3 cursor-pointer mb-5">
+          <button
+            type="button"
+            onClick={() => handleChange("require_listing_payment", settings.require_listing_payment === "true" ? "false" : "true")}
+            className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+              settings.require_listing_payment === "true" ? "bg-blue-600" : "bg-gray-300"
+            }`}
+          >
+            <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+              settings.require_listing_payment === "true" ? "translate-x-5" : ""
+            }`} />
+          </button>
+          <div className="flex-1">
+            <p className="text-sm text-gray-700 font-medium">Require payment to publish</p>
+            <p className="text-xs text-gray-500">
+              When on, submitted listings stay hidden until the owner pays. When off (free-listing promotion), listings publish immediately at no cost.
+            </p>
+          </div>
+        </label>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sell listing price</label>
+            <input type="number" min={0} value={settings.listing_sell_price || "999"}
+              onChange={(e) => handleChange("listing_sell_price", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sell validity (days)</label>
+            <input type="number" min={1} value={settings.listing_sell_days || "90"}
+              onChange={(e) => handleChange("listing_sell_days", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Rent listing price</label>
+            <input type="number" min={0} value={settings.listing_rent_price || "499"}
+              onChange={(e) => handleChange("listing_rent_price", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Rent validity (days)</label>
+            <input type="number" min={1} value={settings.listing_rent_days || "30"}
+              onChange={(e) => handleChange("listing_rent_days", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Featured add-on price</label>
+            <input type="number" min={0} value={settings.featured_price || "299"}
+              onChange={(e) => handleChange("featured_price", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Featured duration (days)</label>
+            <input type="number" min={1} value={settings.featured_days || "30"}
+              onChange={(e) => handleChange("featured_days", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Grace period (days)</label>
+            <input type="number" min={0} value={settings.listing_grace_days || "7"}
+              onChange={(e) => handleChange("listing_grace_days", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Expiry reminder days</label>
+            <input type="text" value={settings.listing_expiry_reminder_days || "15,7,3,1"}
+              onChange={(e) => handleChange("listing_expiry_reminder_days", e.target.value)}
+              placeholder="15,7,3,1"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Payment provider</label>
+            <select value={settings.payment_provider || "mock"}
+              onChange={(e) => handleChange("payment_provider", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="mock">Mock (development — no real payment)</option>
+              <option value="razorpay">Razorpay</option>
+              <option value="stripe">Stripe</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
+            <input type="text" value={settings.payment_currency || "INR"}
+              onChange={(e) => handleChange("payment_currency", e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          {(settings.payment_provider === "razorpay" || settings.payment_provider === "stripe") && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Public key / Key ID</label>
+                <input type="text" value={settings.payment_key_id || ""}
+                  onChange={(e) => handleChange("payment_key_id", e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Secret key</label>
+                <input type="password" value={settings.payment_key_secret || ""}
+                  onChange={(e) => handleChange("payment_key_secret", e.target.value)}
+                  placeholder="Leave blank to keep the saved secret"
+                  autoComplete="new-password"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Webhook signing secret</label>
+                <input type="password" value={settings.payment_webhook_secret || ""}
+                  onChange={(e) => handleChange("payment_webhook_secret", e.target.value)}
+                  placeholder="Leave blank to keep the saved secret"
+                  autoComplete="new-password"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* DATA & PRIVACY */}

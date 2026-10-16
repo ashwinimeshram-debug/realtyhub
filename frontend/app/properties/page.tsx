@@ -4,9 +4,9 @@ import { getProperties, getLocationCounts } from "@/lib/serverData";
 import { SITE_URL } from "@/lib/assets";
 
 export const metadata: Metadata = {
-  title: "Properties for Sale and Rent in Nagpur",
+  title: "Properties for Sale, Resale and Rent in Nagpur",
   description:
-    "Browse verified properties for sale and rent in Nagpur. Filter by locality, type and budget and connect directly with owners.",
+    "Browse verified properties for sale, resale and rent in Nagpur. Filter by locality, type and budget and connect directly with owners.",
   alternates: { canonical: `${SITE_URL}/properties` },
 };
 

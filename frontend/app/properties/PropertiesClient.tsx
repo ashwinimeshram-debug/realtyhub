@@ -36,6 +36,18 @@ export default function PropertiesClient({
 
   const totalPages = Math.max(1, Math.ceil((total || properties.length) / (perPage || 50)));
 
+  // Link that drops the location filter but keeps any other filters (type,
+  // budget, etc.) on the generic listing page. From a locality hub page it
+  // always returns to the default /properties view.
+  const clearParams = new URLSearchParams(listQuery);
+  clearParams.delete("location");
+  clearParams.delete("page");
+  const remainingQuery = clearParams.toString();
+  const clearHref =
+    basePath === "/properties" && remainingQuery
+      ? `/properties?${remainingQuery}`
+      : "/properties";
+
   const pageHref = (target: number) => {
     const params = new URLSearchParams(listQuery);
     params.delete("page");
@@ -65,11 +77,32 @@ export default function PropertiesClient({
         <h1 className="text-2xl md:text-3xl font-bold mt-4 mb-4 text-center" style={{ color: "var(--primary)" }}>
           {activeLocation
             ? `Properties in ${activeLocation}, Nagpur`
-            : "Properties for Sale and Rent in Nagpur"}
+            : "Properties for Sale, Resale and Rent in Nagpur"}
         </h1>
+
+        {activeLocation && (
+          <div className="flex justify-center mb-4">
+            <Link
+              href={clearHref}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-100 transition"
+            >
+              <span aria-hidden>✕</span> Clear location filter
+            </Link>
+          </div>
+        )}
 
         {areas.length > 0 && (
           <div className="flex flex-wrap justify-center gap-2">
+            <Link
+              key="__all__"
+              href={clearHref}
+              className={`px-3 py-1.5 rounded-full text-sm font-medium transition ${
+                !activeLocation ? "text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+              style={!activeLocation ? { backgroundColor: "var(--primary)" } : undefined}
+            >
+              All Properties
+            </Link>
             {areas.map((a) => (
               <Link
                 key={a.name}
@@ -114,7 +147,18 @@ export default function PropertiesClient({
             ))}
           </div>
         ) : (
-          <p className="text-center text-gray-500 py-16">No properties found.</p>
+          <div className="text-center py-16">
+            <p className="text-gray-500">No properties found.</p>
+            {activeLocation && (
+              <Link
+                href={clearHref}
+                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-white transition"
+                style={{ backgroundColor: "var(--primary)" }}
+              >
+                <span aria-hidden>✕</span> Clear location filter
+              </Link>
+            )}
+          </div>
         )}
 
         {totalPages > 1 && (
