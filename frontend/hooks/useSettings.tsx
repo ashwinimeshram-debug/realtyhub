@@ -13,16 +13,26 @@ const SettingsContext = createContext<SettingsContextType>({
   loading: true,
 });
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+export function SettingsProvider({
+  children,
+  initial,
+}: {
+  children: ReactNode;
+  initial?: Record<string, string>;
+}) {
+  const hasInitial = initial && Object.keys(initial).length > 0;
+  const [settings, setSettings] = useState<Record<string, string>>(initial || {});
+  const [loading, setLoading] = useState(!hasInitial);
 
   useEffect(() => {
+    // Server-rendered pages already provide the settings map, so we skip the
+    // extra /settings round-trip and the layout shift that comes with it.
+    if (hasInitial) return;
     API.get("/settings")
       .then((res) => setSettings(res.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [hasInitial]);
 
   return (
     <SettingsContext.Provider value={{ settings, loading }}>

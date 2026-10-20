@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { backendAssetUrl } from "@/lib/assets";
@@ -6,10 +7,13 @@ import { getHomeData } from "@/lib/serverData";
 import SearchBar from "@/components/SearchBar";
 import SectionHeader from "@/components/home/SectionHeader";
 import HeroSlider from "@/components/home/HeroSlider";
-import FeaturedCarousel from "@/components/home/FeaturedCarousel";
-import NewPropertiesCarousel from "@/components/home/NewPropertiesCarousel";
 import TestimonialsCarousel from "@/components/home/TestimonialsCarousel";
 import FaqAccordion from "@/components/home/FaqAccordion";
+
+// Code-split the two Swiper-heavy sections so the shared bundle stays small;
+// they still server-render for SEO and hydrate below the fold.
+const FeaturedCarousel = dynamic(() => import("@/components/home/FeaturedCarousel"));
+const NewPropertiesCarousel = dynamic(() => import("@/components/home/NewPropertiesCarousel"));
 import JsonLd from "@/components/seo/JsonLd";
 import DirectAnswer from "@/components/seo/DirectAnswer";
 import { SITE_URL } from "@/lib/assets";
@@ -126,7 +130,7 @@ export default async function Home() {
     testimonials,
     featured,
     faqs,
-    allProperties,
+    locationCounts,
     latest,
   } = await getHomeData();
 
@@ -155,18 +159,7 @@ export default async function Home() {
     faq: "section_faq_visible",
   };
 
-  const areas = (() => {
-    const map: Record<string, number> = {};
-    allProperties.forEach((p: any) => {
-      if (p.location) {
-        map[p.location] = (map[p.location] || 0) + 1;
-      }
-    });
-    return Object.entries(map)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 14)
-      .map(([name, count]) => ({ name, count }));
-  })();
+  const areas = locationCounts.slice(0, 14).map(({ name, count }) => ({ name, count }));
 
   const sectionOrdered: Array<{ key: string; node: React.ReactNode }> = sectionOrder
     .filter((key) => key !== "hero")

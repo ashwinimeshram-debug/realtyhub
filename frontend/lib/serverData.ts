@@ -49,8 +49,8 @@ export interface HomeData {
   testimonials: any[];
   featured: any[];
   faqs: any[];
-  allProperties: any[];
   latest: any[];
+  locationCounts: { name: string; count: number }[];
 }
 
 export async function getHomeData(): Promise<HomeData> {
@@ -61,7 +61,11 @@ export async function getHomeData(): Promise<HomeData> {
       : {};
   const parsedFeatCount = parseInt(settings["section_featured_count"] || "20", 10);
   const featCount = Math.min(Math.max(Number.isFinite(parsedFeatCount) ? parsedFeatCount : 20, 1), 50);
-  const [heroRes, servicesRes, advantagesRes, testimonialsRes, featuredRes, faqsRes, allRes] =
+
+  const parsedNewCount = parseInt(settings["section_new_count"] || "10", 10);
+  const newCount = Math.min(Math.max(Number.isFinite(parsedNewCount) ? parsedNewCount : 10, 1), 20);
+
+  const [heroRes, servicesRes, advantagesRes, testimonialsRes, featuredRes, faqsRes, latestRes, locationsRes] =
     await Promise.all([
       fetchJson("/hero"),
       fetchJson("/services"),
@@ -69,34 +73,31 @@ export async function getHomeData(): Promise<HomeData> {
       fetchJson("/testimonials"),
       fetchJson(`/properties?featured=true&per_page=${featCount}`),
       fetchJson("/faq"),
-      fetchJson("/properties"),
+      fetchJson(`/properties?per_page=${newCount}`),
+      fetchJson("/location-counts"),
     ]);
 
   const list = (v: any) => (Array.isArray(v) ? v : v?.items || []);
-  const items = (v: any) => (Array.isArray(v) ? v : v?.items || []);
 
-  const allProperties = list(allRes);
-
-  const parsedCount = parseInt(settings["section_new_count"] || "10", 10);
-  const newCount = Math.min(Math.max(Number.isFinite(parsedCount) ? parsedCount : 10, 1), 20);
   const weekMs = 7 * 24 * 60 * 60 * 1000;
   const now = Date.now();
-  const latest = allProperties.slice(0, newCount).map((p: any) => ({
+  const latest = list(latestRes).slice(0, newCount).map((p: any) => ({
     ...p,
     _isNew: p.created_at ? now - new Date(p.created_at).getTime() < weekMs : false,
   }));
 
   const featured = list(featuredRes).slice(0, featCount);
+  const locationCounts = Array.isArray(locationsRes) ? locationsRes : [];
   return {
     settings,
-    heroSlides: items(heroRes),
-    services: items(servicesRes),
-    advantages: items(advantagesRes),
-    testimonials: items(testimonialsRes),
+    heroSlides: list(heroRes),
+    services: list(servicesRes),
+    advantages: list(advantagesRes),
+    testimonials: list(testimonialsRes),
     featured,
-    faqs: items(faqsRes),
-    allProperties,
+    faqs: list(faqsRes),
     latest,
+    locationCounts,
   };
 }
 

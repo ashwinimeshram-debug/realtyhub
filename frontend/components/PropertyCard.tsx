@@ -1,3 +1,4 @@
+import Link from "next/link";
 import ImageSlider from "./ImageSlider";
 import { propertyHref } from "@/lib/api";
 import { formatPriceDisplay } from "@/lib/priceFormat";
@@ -34,12 +35,12 @@ export default function PropertyCard({ p, ctx }: { p: any; ctx?: string }) {
         </p>
 
         {/* VIEW DETAILS */}
-        <a
+        <Link
           href={href}
           className="mt-2 inline-block text-sm" style={{ color: "var(--primary)" }}
         >
           View Details →
-        </a>
+        </Link>
 
       </div>
     </div>

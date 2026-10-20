@@ -8,6 +8,8 @@ import time
 import logging
 import mimetypes
 
+import rate_limit_storage  # noqa: F401  registers the db:// limiter storage scheme
+
 # Windows' mimetypes registry does not know the modern image formats,
 # so uploads were served as application/octet-stream. Register them
 # explicitly so browsers can treat (and cache) them as images.
@@ -96,7 +98,8 @@ def _import_all_models():
         AboutGalleryImage, TeamMember, ActivityLog,
         PropertyTypeField, PropertyValue, PresetFeature, PropertyFeature,
         PropertyAuditLog, PasswordResetRequest,
-        Role, Permission, RolePermission,
+        Role, Permission, RolePermission, RateLimitCounter,
+        MetaPage, MetaLeadEvent, Coupon, CouponRedemption, LeadTransfer,  # noqa: F401
     )
     from models.cms_models import HeroSlide, Service, Advantage
     from models.contactus import Contactus
@@ -124,6 +127,7 @@ def _register_blueprints(app):
     from routes.saved_search_routes import saved_search_bp
     from routes.payments_routes import payments_bp
     from routes.ai_routes import ai_bp
+    from routes.meta_routes import meta_bp
 
     app.register_blueprint(public_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -143,6 +147,7 @@ def _register_blueprints(app):
     app.register_blueprint(saved_search_bp, url_prefix="/api")
     app.register_blueprint(payments_bp, url_prefix="/api/payments")
     app.register_blueprint(ai_bp, url_prefix="/api")
+    app.register_blueprint(meta_bp, url_prefix="/api")
 
 
 def _register_error_handlers(app):
@@ -218,6 +223,18 @@ def _register_request_logging(app):
         if hasattr(request, "_start_time") and not request.path.startswith("/api/analytics/"):
             duration = round((time.time() - request._start_time) * 1000, 2)
             logger.info(f"{request.method} {request.path} -> {response.status_code} ({duration}ms)")
+        # Any successful mutation may change what public endpoints should serve,
+        # so drop the in-process public cache (location counts, sitemap). High
+        # frequency analytics and the Meta webhook never touch public listings.
+        if (
+            request.method not in ("GET", "HEAD", "OPTIONS")
+            and 200 <= response.status_code < 300
+            and request.path.startswith("/api/")
+            and not request.path.startswith("/api/analytics/")
+            and not request.path.startswith("/api/meta/")
+        ):
+            from utils.cache import clear_cache
+            clear_cache("public:")
         return response
 
 
@@ -269,13 +286,8 @@ def _seed_defaults():
         for name, color, order in default_statuses:
             db.session.add(LeadStatus(name=name, color=color, sort_order=order))
 
-    if Admin.query.count() == 0:
-        admin_user = os.getenv("ADMIN_USERNAME", "admin")
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@nagpurrealtyhub.com")
-        admin_pass = os.getenv("ADMIN_PASSWORD", "admin123")
-        hashed = bcrypt.hashpw(admin_pass.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        db.session.add(Admin(username=admin_user, email=admin_email,
-                             name="Administrator", password=hashed, is_active=True))
+    # NOTE: A default admin/admin123 account is intentionally NOT seeded.
+    # Create the first account with `python scripts/create_admin.py`.
 
     if PropertyTypeField.query.count() == 0:
         _seed_type_fields()

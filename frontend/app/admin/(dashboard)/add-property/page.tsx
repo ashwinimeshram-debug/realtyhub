@@ -60,6 +60,7 @@ export default function AddPropertyPage() {
   const [selectedClosingId, setSelectedClosingId] = useState<number | null>(null);
   const [selectedChips, setSelectedChips] = useState<string[]>([]);
   const [presetFeatures, setPresetFeatures] = useState<Array<{ id: number; label: string; sentence: string }>>([]);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const typeNames = useMemo(() => Object.fromEntries(propertyTypes.map((t) => [t.value, t.name])), [propertyTypes]);
 
@@ -92,6 +93,34 @@ export default function AddPropertyPage() {
     }
     return parts.join(" ");
   }, [selectedOverviewId, selectedClosingId, selectedChips, templates, templateVars, typeNames]);
+
+  const handleGenerateCopy = useCallback(async () => {
+    if (!form.property_type || !form.transaction_type) {
+      toast("Select a listing intent and property type first", "warning");
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const res = await API.post("/ai/generate-listing", {
+        transaction_type: form.transaction_type,
+        property_type: form.property_type,
+        listed_by: form.listed_by || "owner",
+        location: form.location || "",
+        price_text: form.price_text || "",
+        features: selectedChips,
+      });
+      setForm((prev) => ({
+        ...prev,
+        title: res.data?.title || prev.title,
+        description: res.data?.description || prev.description,
+      }));
+      toast(res.data?.ai_enabled ? "Copy generated with AI" : "Draft copy generated", "success");
+    } catch (err: any) {
+      toast(err?.response?.data?.error || "Could not generate copy", "error");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [form.transaction_type, form.property_type, form.listed_by, form.location, form.price_text, selectedChips, toast]);
 
   useEffect(() => {
     API.get("/types?category=property").then((r) => setPropertyTypes(r.data)).catch(() => {});
@@ -485,6 +514,18 @@ export default function AddPropertyPage() {
             <SectionHeader
               icon={<svg className="w-5 h-5" style={{ color: "var(--primary)" }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>}
               title="Property Title & Description"
+              right={
+                !isDisabled ? (
+                  <button
+                    type="button"
+                    onClick={handleGenerateCopy}
+                    disabled={aiLoading}
+                    className="btn btn-ghost text-sm disabled:opacity-50"
+                  >
+                    {aiLoading ? "Generating…" : "✨ Generate with AI"}
+                  </button>
+                ) : undefined
+              }
             />
             <div className="space-y-4 mb-6">
               <div>

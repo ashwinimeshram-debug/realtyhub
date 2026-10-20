@@ -84,7 +84,7 @@ export default async function RootLayout({
         <JsonLd data={buildSiteGraph(site)} />
         <GA4 />
         <ThemeStyle />
-        <SettingsProvider>
+        <SettingsProvider initial={settings}>
         <OwnerAuthProvider>
         <ToastProvider>
         <ConfirmProvider>

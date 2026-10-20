@@ -520,6 +520,13 @@ def apply_paid_transaction(txn, provider_payment_id=None, method="online", provi
     else:
         renew_listing(prop, txn.duration_days, now)
 
+    # Count the coupon as redeemed only now that payment succeeded.
+    try:
+        from utils.coupons import redeem_coupon
+        redeem_coupon(txn)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("coupon redeem failed txn=%s: %s", txn.id, exc)
+
     db.session.commit()
     return True
 

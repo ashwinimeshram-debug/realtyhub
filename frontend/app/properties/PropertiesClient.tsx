@@ -174,7 +174,7 @@ export default function PropertiesClient({
                 Previous
               </Link>
             )}
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            {pageNumbers.map((p) => (
               <Link
                 key={p}
                 href={paginationHref(basePath, listQuery, p)}

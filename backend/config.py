@@ -57,6 +57,8 @@ class Config:
     JWT_COOKIE_CSRF_PROTECT = True
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
 
+    _is_production = os.getenv("FLASK_ENV") == "production"
+
     SQLALCHEMY_DATABASE_URI = os.getenv(
         "DATABASE_URL",
         "postgresql+psycopg2://postgres:postgres@localhost:5432/realtyhub"
@@ -65,32 +67,46 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_recycle": 3600,
         "pool_pre_ping": True,
-        "pool_size": 10,
-        "max_overflow": 20,
+        # Passenger runs a small number of workers on shared cPanel; keep the
+        # pool modest so total connections stay within the Postgres limit.
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "5")),
     }
 
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
     SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "realtyhub-images")
 
-    UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads")
+    # Absolute path so uploads work regardless of the process working
+    # directory (Passenger/cPanel does not guarantee the app dir).
+    UPLOAD_FOLDER = os.getenv(
+        "UPLOAD_FOLDER",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads"),
+    )
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024
     MAX_FILE_SIZE = 10 * 1024 * 1024
     ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "avif"}
 
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    CORS_ORIGINS = [
+        o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
+    ]
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-    MAIL_SERVER = "smtp.gmail.com"
-    MAIL_PORT = 587
-    MAIL_USE_TLS = True
+    MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.getenv("MAIL_PORT", "587"))
+    MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
     MAIL_USERNAME = os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com")
     MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "your_app_password")
     MAIL_SENDER = os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com")
     MAIL_ENABLED = os.getenv("MAIL_ENABLED", "false").lower() in ("1", "true", "yes")
 
-    RATELIMIT_DEFAULT = "200/minute"
-    RATELIMIT_STORAGE_URI = "memory://"
+    RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "200 per minute")
+    # Shared storage so limits stay accurate across Passenger workers. The
+    # Postgres-backed "db://" scheme is the safe default in production; dev
+    # falls back to per-process memory.
+    RATELIMIT_STORAGE_URI = os.getenv(
+        "RATELIMIT_STORAGE_URI", "db://" if _is_production else "memory://"
+    )
 
     # Shared secret for external cron/scheduler callbacks (X-Cron-Key header).
     CRON_KEY = os.getenv("CRON_KEY", "")

@@ -12,7 +12,7 @@ import ImageSlider from "@/components/ImageSlider";
 import ConsentCheckbox from "@/components/ConsentCheckbox";
 import Link from "next/link";
 import { formatPriceDisplay } from "@/lib/priceFormat";
-import { sortProperties } from "@/lib/propertySort";
+import { TIMEFRAME_OPTIONS, BUDGET_OPTIONS } from "@/lib/leadOptions";
 
 export default function PropertyDetailClient({
   initialProperty,
@@ -27,12 +27,14 @@ export default function PropertyDetailClient({
   const [property, setProperty] = useState<any>(initialProperty || null);
   const [allIds, setAllIds] = useState<number[]>([]);
   const [navTitles, setNavTitles] = useState<Record<number, string>>({});
+  const [prevNav, setPrevNav] = useState<{ id: number; title: string } | null>(null);
+  const [nextNav, setNextNav] = useState<{ id: number; title: string } | null>(null);
   const [navCtx, setNavCtx] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", mobile: "", consent: false });
+  const [form, setForm] = useState({ name: "", email: "", mobile: "", consent: false, timeframe: "", preferred_location: "", budget: "" });
 
   useEffect(() => {
     if (initialProperty) setProperty(initialProperty);
@@ -45,6 +47,7 @@ export default function PropertyDetailClient({
         : "";
     setNavCtx(search);
 
+    if (!propertyId) return;
     const sp = new URLSearchParams(search);
     const filters = new URLSearchParams();
     ["location", "type", "category", "min_price", "max_price", "featured"].forEach((key) => {
@@ -52,28 +55,27 @@ export default function PropertyDetailClient({
       if (value) filters.set(key, value);
     });
     const sortBy = sp.get("sort") || "newest";
-    const filterStr = filters.toString();
+    filters.set("sort", sortBy);
+    filters.set("id", String(propertyId));
 
-    const loadNav = async () => {
-      try {
-        const qs = filterStr ? `${filterStr}&per_page=200` : "per_page=200";
-        const res = await API.get(`/properties?${qs}`);
-        const items = Array.isArray(res.data) ? res.data : res.data?.items || [];
-        let source = sortProperties(items, sortBy);
-        if (propertyId && !items.some((p: any) => p.id === propertyId)) {
-          const all = await API.get("/properties?per_page=200");
-          const allItems = Array.isArray(all.data) ? all.data : all.data?.items || [];
-          source = sortProperties(allItems, "newest");
-        }
-        setAllIds(source.map((p: any) => p.id));
-        setNavTitles(
-          Object.fromEntries(source.map((p: any) => [p.id, p.title as string])),
-        );
-      } catch {
+    // Only the immediate neighbours are fetched (id + title), instead of the
+    // previous approach which pulled up to 400 full listings.
+    API.get(`/property/${propertyId}/neighbors?${filters.toString()}`)
+      .then((res) => {
+        const prev = res.data?.prev;
+        const next = res.data?.next;
+        const ids: number[] = [];
+        const titles: Record<number, string> = {};
+        if (prev) { ids.push(prev.id); titles[prev.id] = prev.title; }
+        if (next) { ids.push(next.id); titles[next.id] = next.title; }
+        setAllIds(ids);
+        setNavTitles(titles);
+        setPrevNav(prev || null);
+        setNextNav(next || null);
+      })
+      .catch(() => {
         /* ignore navigation errors */
-      }
-    };
-    loadNav();
+      });
   }, [propertyId]);
 
   useEffect(() => {
@@ -85,8 +87,8 @@ export default function PropertyDetailClient({
   }, [propertyId, initialProperty]);
 
   const currentIndex = propertyId ? allIds.indexOf(propertyId) : -1;
-  const prevId = currentIndex > 0 ? allIds[currentIndex - 1] : null;
-  const nextId = currentIndex < allIds.length - 1 ? allIds[currentIndex + 1] : null;
+  const prevId = prevNav?.id ?? (currentIndex > 0 ? allIds[currentIndex - 1] : null);
+  const nextId = nextNav?.id ?? (currentIndex >= 0 && currentIndex < allIds.length - 1 ? allIds[currentIndex + 1] : null);
 
   const handleContact = async () => {
     if (!form.name.trim() || !form.mobile.trim()) {
@@ -124,7 +126,7 @@ export default function PropertyDetailClient({
     setShowModal(false);
     setSubmitted(false);
     setSubmitMsg("");
-    setForm({ name: "", email: "", mobile: "", consent: false });
+    setForm({ name: "", email: "", mobile: "", consent: false, timeframe: "", preferred_location: "", budget: "" });
   };
 
   if (!property) {
@@ -283,6 +285,39 @@ export default function PropertyDetailClient({
                     className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                   />
                   <p className="text-xs text-gray-400 mt-1">For multiple numbers, separate with comma</p>
+
+                  <select
+                    value={form.timeframe}
+                    onChange={(e) => setForm({ ...form, timeframe: e.target.value })}
+                    disabled={submitting}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 text-gray-700"
+                  >
+                    <option value="">When are you planning to buy? (optional)</option>
+                    {TIMEFRAME_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+
+                  <input
+                    type="text"
+                    placeholder="Preferred location (optional)"
+                    value={form.preferred_location}
+                    onChange={(e) => setForm({ ...form, preferred_location: e.target.value })}
+                    disabled={submitting}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                  />
+
+                  <select
+                    value={form.budget}
+                    onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                    disabled={submitting}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 text-gray-700"
+                  >
+                    <option value="">Budget (optional)</option>
+                    {BUDGET_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
 
                   <ConsentCheckbox
                     checked={form.consent}

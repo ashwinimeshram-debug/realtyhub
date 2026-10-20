@@ -21,6 +21,7 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 from utils.supabase_storage import delete_file
 from utils.images import process_image_upload
+from utils.cache import get_cached, set_cached
 
 logger = logging.getLogger("realtyhub")
 
@@ -290,6 +291,11 @@ def get_property_detail(id):
         return jsonify({"error": "Property not found"}), 404
     if prop.owner_id and (not prop.owner or not prop.owner.is_active):
         return jsonify({"error": "Property not found"}), 404
+    # Staff-created listings (no owner) may still be in review; unpaid listings
+    # stay reachable so owners can preview their own checkout flow, but anything
+    # closed/rejected/pending is hidden so its existence is not leaked.
+    if prop.is_closed or prop.status in ("pending", "rejected"):
+        return jsonify({"error": "Property not found"}), 404
 
     owner_pc = PropertyContact.query.filter_by(property_id=id, type="owner").first()
     field_values = PropertyValue.query.filter_by(property_id=id).all()
@@ -313,6 +319,56 @@ def get_property_detail(id):
         "selected_features": [{"id": pf.id, "label": pf.label} for pf in prop.features],
         "field_values": [{"field_key": fv.field_key, "field_value": fv.field_value, "field_label": field_defs.get(fv.field_key, fv.field_key)} for fv in field_values],
     })
+
+
+@public_bp.route("/property/<int:id>/neighbors", methods=["GET"])
+def property_neighbors(id):
+    """Lightweight prev/next links for the property detail page.
+
+    Replaces the old client-side fetch of up to 400 full listings. Accepts the
+    same filter params as the detail page's navigation context so arrows follow
+    the search the visitor came from, and returns only the neighbour titles.
+    """
+    query = Property.query.filter(public_visible_condition())
+    query, filter_err, _keyword = apply_property_filters(query, request.args)
+    if filter_err:
+        return jsonify({"error": filter_err}), 400
+
+    sort = request.args.get("sort", "newest")
+    if sort == "price_low":
+        query = query.order_by(Property.price.asc(), Property.id.asc())
+    elif sort == "price_high":
+        query = query.order_by(Property.price.desc(), Property.id.asc())
+    elif sort == "featured":
+        query = query.order_by(Property.is_featured.desc(), Property.created_at.desc(), Property.id.asc())
+    else:
+        query = query.order_by(Property.created_at.desc(), Property.id.asc())
+
+    ids = [row[0] for row in query.with_entities(Property.id).all()]
+    if id not in ids:
+        # Fall back to the unfiltered public list so arrows still work when the
+        # visitor's filters exclude the current listing.
+        fallback = Property.query.filter(public_visible_condition()).order_by(
+            Property.created_at.desc(), Property.id.asc()
+        )
+        ids = [row[0] for row in fallback.with_entities(Property.id).all()]
+
+    index = ids.index(id) if id in ids else -1
+    prev_id = ids[index - 1] if index > 0 else None
+    next_id = ids[index + 1] if 0 <= index < len(ids) - 1 else None
+
+    titles = {}
+    lookup = [pid for pid in (prev_id, next_id) if pid is not None]
+    if lookup:
+        for pid, title in Property.query.filter(Property.id.in_(lookup)).with_entities(Property.id, Property.title):
+            titles[pid] = title
+
+    def link(pid):
+        if pid is None:
+            return None
+        return {"id": pid, "title": titles.get(pid, "")}
+
+    return jsonify({"prev": link(prev_id), "next": link(next_id)})
 
 
 @public_bp.route("/property/<int:id>/contact", methods=["POST"])
@@ -340,7 +396,14 @@ def property_contact(id):
     if prop.status in ("pending", "rejected") or prop.is_closed:
         return jsonify({"error": "Property not found"}), 404
 
-    lead = Lead(name=name, email=email, mobile=mobile, source="connect", property_id=id)
+    # Optional intake details (all free-text; values come from preset dropdowns
+    # in the UI, so cap length defensively without hard-validating the label).
+    timeframe = (data.get("timeframe") or "").strip()[:50] or None
+    preferred_location = (data.get("preferred_location") or "").strip()[:150] or None
+    budget = (data.get("budget") or "").strip()[:50] or None
+
+    lead = Lead(name=name, email=email, mobile=mobile, source="connect", property_id=id,
+                timeframe=timeframe, preferred_location=preferred_location, budget=budget)
     from utils.sla import apply_sla
     apply_sla(lead)
     db.session.add(lead)
@@ -533,6 +596,12 @@ def invalidate_field_cache():
 
 @public_bp.route("/location-counts", methods=["GET"])
 def location_counts():
+    cached = get_cached("public:location-counts")
+    if cached is not None:
+        resp = jsonify(cached)
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+
     from sqlalchemy import func
     rows = db.session.query(
         Property.location, func.count(Property.id).label("count")
@@ -561,7 +630,9 @@ def location_counts():
             counts[loc] = 0
 
     ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
-    resp = jsonify([{"name": name, "count": count} for name, count in ordered])
+    payload = [{"name": name, "count": count} for name, count in ordered]
+    set_cached("public:location-counts", payload, 120)
+    resp = jsonify(payload)
     resp.headers["Cache-Control"] = "public, max-age=300"
     return resp
 
@@ -569,6 +640,12 @@ def location_counts():
 @public_bp.route("/sitemap-data", methods=["GET"])
 def sitemap_data():
     """Lightweight listing index (id/title/updated_at) for XML sitemap generation."""
+    cached = get_cached("public:sitemap-data")
+    if cached is not None:
+        resp = jsonify(cached)
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
+
     rows = (
         Property.query.filter(
             public_visible_condition(),
@@ -577,14 +654,16 @@ def sitemap_data():
         .order_by(Property.updated_at.desc())
         .all()
     )
-    resp = jsonify([
+    payload = [
         {
             "id": p.id,
             "title": p.title,
             "updated_at": p.updated_at.isoformat() if p.updated_at else None,
         }
         for p in rows
-    ])
+    ]
+    set_cached("public:sitemap-data", payload, 300)
+    resp = jsonify(payload)
     resp.headers["Cache-Control"] = "public, max-age=300"
     return resp
 

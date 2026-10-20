@@ -3,6 +3,16 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:500
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api";
 
+if (
+  process.env.NODE_ENV === "production" &&
+  /localhost|127\.0\.0\.1/.test(BACKEND_URL)
+) {
+  // Fail loudly at build time rather than silently serving a broken API origin.
+  console.warn(
+    "[next.config] NEXT_PUBLIC_BACKEND_URL is unset or points at localhost in a production build."
+  );
+}
+
 function uploadPattern(url) {
   try {
     const u = new URL(url);
@@ -40,6 +50,9 @@ const remotePatterns = [
   );
 
 const nextConfig = {
+  reactStrictMode: true,
+  poweredByHeader: false,
+  compress: true,
   images: {
     formats: ["image/avif", "image/webp"],
     minimumCacheTTL: 2592000,

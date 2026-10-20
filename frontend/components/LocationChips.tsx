@@ -12,14 +12,16 @@ export default function LocationChips() {
   const pathname = usePathname();
   const [areas, setAreas] = useState<LocationCount[]>([]);
 
-  if (pathname.startsWith("/admin")) return null;
-
   const visible = settings.section_locations_visible !== "false";
 
+  // Hooks must run unconditionally, so the data fetch is set up before any
+  // early return (admin routes still skip rendering below).
   useEffect(() => {
     if (!visible) return;
     getLocationCounts().then(setAreas);
   }, [visible]);
+
+  if (pathname.startsWith("/admin")) return null;
 
   if (!visible || areas.length === 0) return null;
 
