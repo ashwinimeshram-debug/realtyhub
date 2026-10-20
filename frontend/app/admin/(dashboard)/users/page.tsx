@@ -84,11 +84,15 @@ export default function UsersPage() {
 
   const handleDelete = async (u: User) => {
     if (u.id === currentUser?.admin_id) { toast("Cannot delete yourself", "error"); return; }
-    const ok = await confirm({ title: "Delete User", message: `Delete "${u.username}"? This cannot be undone.`, confirmLabel: "Delete" });
+    const ok = await confirm({
+      title: "Delete User",
+      message: `Delete "${u.username}"? Any leads assigned to them will become unassigned. This cannot be undone.`,
+      confirmLabel: "Delete",
+    });
     if (!ok) return;
     try {
-      await API.delete(`/admin/users/${u.id}`);
-      toast("User deleted", "success");
+      const res = await API.delete(`/admin/users/${u.id}`);
+      toast(res?.data?.message || "User deleted", "success");
       load();
     } catch (err: any) {
       toast(err?.response?.data?.error || "Failed to delete", "error");

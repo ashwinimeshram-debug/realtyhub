@@ -68,6 +68,10 @@ class Property(db.Model):
             "idx_property_location_trgm", "location",
             postgresql_using="gin", postgresql_ops={"location": "gin_trgm_ops"},
         ),
+        db.Index(
+            "idx_property_description_trgm", "description",
+            postgresql_using="gin", postgresql_ops={"description": "gin_trgm_ops"},
+        ),
     )
 
 
@@ -258,6 +262,10 @@ class Lead(db.Model):
     follow_up_at = db.Column(db.DateTime, nullable=True)
     archived_at = db.Column(db.DateTime, nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    # Optional intake details captured from the public connect/enquiry form.
+    timeframe = db.Column(db.String(50), nullable=True)
+    preferred_location = db.Column(db.String(150), nullable=True)
+    budget = db.Column(db.String(50), nullable=True)
     first_response_at = db.Column(db.DateTime, nullable=True)
     sla_due_at = db.Column(db.DateTime, nullable=True)
     sla_reminded_at = db.Column(db.DateTime, nullable=True)
@@ -267,6 +275,7 @@ class Lead(db.Model):
     property = db.relationship("Property", backref="leads", lazy="joined")
     status_obj = db.relationship("LeadStatus", backref="leads", lazy="joined")
     history = db.relationship("LeadHistory", backref="lead", lazy="dynamic", cascade="all, delete-orphan")
+    transfers = db.relationship("LeadTransfer", backref="lead", lazy="dynamic", cascade="all, delete-orphan")
 
     __table_args__ = (
         db.Index("idx_lead_property", "property_id"),
@@ -276,6 +285,7 @@ class Lead(db.Model):
         db.Index("idx_lead_stage", "stage"),
         db.Index("idx_lead_archived", "archived_at"),
         db.Index("idx_lead_sla_due", "sla_due_at"),
+        db.Index("idx_lead_assigned", "assigned_to"),
     )
 
 
@@ -304,6 +314,31 @@ class LeadHistory(db.Model):
     __table_args__ = (
         db.Index("idx_lead_history_lead", "lead_id"),
         db.Index("idx_lead_history_created", "created_at"),
+    )
+
+
+class LeadTransfer(db.Model):
+    """Audit trail of lead ownership transfers (employee A -> B -> C).
+
+    Admin names are snapshotted so the history survives user deletion; the FK
+    columns are SET NULL on delete for the same reason.
+    """
+
+    __tablename__ = "lead_transfers"
+
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"))
+    from_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id", ondelete="SET NULL"), nullable=True)
+    to_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id", ondelete="SET NULL"), nullable=True)
+    from_admin_name = db.Column(db.String(120), nullable=True)
+    to_admin_name = db.Column(db.String(120), nullable=True)
+    reason = db.Column(db.String(255), nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("admins.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index("idx_lead_transfer_lead", "lead_id"),
+        db.Index("idx_lead_transfer_created", "created_at"),
     )
 
 
@@ -520,6 +555,9 @@ class ListingTransaction(db.Model):
     duration_days = db.Column(db.Integer, nullable=False, default=0)
     featured_days = db.Column(db.Integer, nullable=True, default=0)  # featured portion (combo)
     discount_percent = db.Column(db.Numeric(5, 2), nullable=True, default=0)  # bundle discount applied
+    coupon_id = db.Column(db.Integer, db.ForeignKey("coupons.id", ondelete="SET NULL"), nullable=True)
+    coupon_code = db.Column(db.String(50), nullable=True)
+    coupon_discount = db.Column(db.Numeric(10, 2), nullable=True, default=0)
     provider = db.Column(db.String(20), default="mock")
     provider_order_id = db.Column(db.String(120), nullable=True, unique=True, index=True)
     provider_payment_id = db.Column(db.String(120), nullable=True)
@@ -539,6 +577,52 @@ class ListingTransaction(db.Model):
     )
 
 
+class Coupon(db.Model):
+    """A discount code applied to a listing/featured/combo checkout total.
+
+    discount_type: percent (value = %) | fixed (value = currency amount).
+    applies_to:    listing | featured | combo | all.
+    Usage is counted on successful payment (see utils.coupons.redeem_coupon).
+    """
+
+    __tablename__ = "coupons"
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(50), nullable=False, unique=True)
+    description = db.Column(db.String(255), nullable=True)
+    discount_type = db.Column(db.String(10), nullable=False, default="percent")
+    value = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    max_discount = db.Column(db.Numeric(10, 2), nullable=True)  # cap for percent
+    min_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    applies_to = db.Column(db.String(15), nullable=False, default="all")
+    valid_from = db.Column(db.DateTime, nullable=True)
+    valid_until = db.Column(db.DateTime, nullable=True)
+    usage_limit = db.Column(db.Integer, nullable=True)     # total redemptions allowed
+    per_user_limit = db.Column(db.Integer, nullable=True)  # per owner
+    used_count = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CouponRedemption(db.Model):
+    """One row per successful coupon redemption (audit + per-user limits)."""
+
+    __tablename__ = "coupon_redemptions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    coupon_id = db.Column(db.Integer, db.ForeignKey("coupons.id", ondelete="CASCADE"))
+    owner_id = db.Column(db.Integer, db.ForeignKey("owners.id", ondelete="SET NULL"), nullable=True)
+    transaction_id = db.Column(db.Integer, db.ForeignKey("listing_transactions.id", ondelete="SET NULL"), nullable=True)
+    amount = db.Column(db.Numeric(10, 2), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index("idx_coupon_redeem_coupon", "coupon_id"),
+        db.Index("idx_coupon_redeem_owner", "owner_id"),
+    )
+
+
 class ListingReminder(db.Model):
     """Idempotency ledger for lifecycle notifications (reminders / expiry)."""
 
@@ -554,3 +638,68 @@ class ListingReminder(db.Model):
         db.UniqueConstraint("property_id", "kind", "stage_days", name="uq_listing_reminder"),
         db.Index("idx_lrem_property", "property_id"),
     )
+
+
+class RateLimitCounter(db.Model):
+    """Shared rate-limit counters for the PostgreSQL-backed storage.
+
+    Backs the Flask-Limiter ``db://`` storage backend (see
+    ``rate_limit_storage.py``) so counters are shared across multiple
+    Passenger worker processes instead of living per-process in memory.
+    """
+
+    __tablename__ = "rate_limit_counters"
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    value = db.Column(db.Integer, nullable=False, default=0)
+    expires_at = db.Column(db.Float, nullable=False)
+
+    __table_args__ = (
+        db.Index("idx_rate_limit_counters_expires", "expires_at"),
+    )
+
+
+class MetaPage(db.Model):
+    """A connected Facebook Page used as a Facebook Lead Ads source.
+
+    The long-lived Page Access Token is stored encrypted (see
+    ``utils.secrets_crypto``); ``source_label`` overrides the default
+    ``facebook`` lead source so leads can be attributed per page.
+    """
+
+    __tablename__ = "meta_pages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    page_id = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    page_name = db.Column(db.String(255), nullable=True)
+    access_token = db.Column(db.Text, nullable=False)
+    source_label = db.Column(db.String(50), nullable=False, default="facebook")
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    last_lead_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MetaLeadEvent(db.Model):
+    """Idempotency ledger for inbound Facebook lead webhook events.
+
+    Meta retries webhooks; ``leadgen_id`` is unique so a repeated delivery
+    never creates a duplicate lead.
+    """
+
+    __tablename__ = "meta_lead_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    leadgen_id = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    page_id = db.Column(db.String(64), nullable=True, index=True)
+    form_id = db.Column(db.String(64), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    detail = db.Column(db.String(255), nullable=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index("idx_meta_event_created", "created_at"),
+    )
+

@@ -525,67 +525,126 @@ function FollowUpsView({ onLeadClick }: { onLeadClick: (id: number) => void }) {
 
   if (loading) return <div className="text-gray-400 text-sm py-6">Loading follow-ups...</div>;
 
+  const groups = groupFollowupsByBucket(followups);
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-100 text-left" style={{ color: "var(--text-muted)" }}>
-            <th className="px-4 py-3 font-medium">#</th>
-            <th className="px-4 py-3 font-medium">Name</th>
-            <th className="px-4 py-3 font-medium hidden sm:table-cell">Mobile</th>
-            <th className="px-4 py-3 font-medium">Stage</th>
-            <th className="px-4 py-3 font-medium">Type</th>
-            <th className="px-4 py-3 font-medium">Follow-up Date</th>
-            <th className="px-4 py-3 font-medium hidden md:table-cell">Property</th>
-          </tr>
-        </thead>
-        <tbody>
-          {followups.length === 0 ? (
-            <tr>
-              <td colSpan={7} className="px-4 py-6 text-center text-gray-400">No follow-ups scheduled</td>
-            </tr>
-          ) : (
-            followups.map((item, i) => {
-              const meta = STAGE_META[item.stage];
-              const badge = followUpBadge(item.followup_date);
-              return (
-                <tr
-                  key={item.id}
-                  onClick={() => onLeadClick(item.lead_id)}
-                  className="border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer"
-                >
-                  <td className="px-4 py-3">{i + 1}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center gap-1.5">
-                      {item.locked && "🔒"}
-                      {item.lead_name}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    {item.locked ? <span className="text-gray-400">Pay to view</span> : item.lead_mobile || "-"}
-                  </td>
-                  <td className="px-4 py-3">
-                    {meta && (
-                      <span className="px-2 py-0.5 rounded text-xs font-medium text-white" style={{ backgroundColor: meta.color }}>
-                        {meta.label}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">{item.type}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {badge.label ? (
-                      <span className={`${badge.bg} ${badge.text} px-2 py-0.5 rounded text-xs font-medium`}>{badge.label}</span>
-                    ) : "-"}
-                  </td>
-                  <td className="px-4 py-3 hidden md:table-cell text-gray-500">{item.property_title || "-"}</td>
+    <div className="space-y-4">
+      {followups.length === 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-gray-400 text-sm">
+          No follow-ups scheduled
+        </div>
+      )}
+      {groups.map((group) => (
+        <div key={group.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className={`flex items-center justify-between px-4 py-2.5 border-b ${group.headerClass}`}>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm">{group.label}</span>
+              {group.subLabel && <span className="text-xs text-gray-500">{group.subLabel}</span>}
+            </div>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${group.countClass}`}>
+              {group.items.length}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left" style={{ color: "var(--text-muted)" }}>
+                  <th className="px-4 py-3 font-medium">#</th>
+                  <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="px-4 py-3 font-medium hidden sm:table-cell">Mobile</th>
+                  <th className="px-4 py-3 font-medium">Stage</th>
+                  <th className="px-4 py-3 font-medium">Type</th>
+                  <th className="px-4 py-3 font-medium">Follow-up Date</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell">Property</th>
                 </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
+              </thead>
+              <tbody>
+                {group.items.map((item, i) => {
+                  const meta = STAGE_META[item.stage];
+                  const badge = followUpBadge(item.followup_date);
+                  return (
+                    <tr
+                      key={item.id}
+                      onClick={() => onLeadClick(item.lead_id)}
+                      className="border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer"
+                    >
+                      <td className="px-4 py-3">{i + 1}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5">
+                          {item.locked && "🔒"}
+                          {item.lead_name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 hidden sm:table-cell">
+                        {item.locked ? <span className="text-gray-400">Pay to view</span> : item.lead_mobile || "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {meta && (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium text-white" style={{ backgroundColor: meta.color }}>
+                            {meta.label}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">{item.type}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {badge.label ? (
+                          <span className={`${badge.bg} ${badge.text} px-2 py-0.5 rounded text-xs font-medium`}>{badge.label}</span>
+                        ) : "-"}
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell text-gray-500">{item.property_title || "-"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
     </div>
   );
+}
+
+// Groups follow-ups into date buckets so the user sees whom to contact today.
+function groupFollowupsByBucket(items: FollowupItem[]) {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const startOfDay = (d: Date) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x.getTime();
+  };
+  const today = startOfDay(now);
+  const day = 86400000;
+
+  const buckets: {
+    key: string;
+    label: string;
+    subLabel: string;
+    headerClass: string;
+    countClass: string;
+    items: FollowupItem[];
+  }[] = [
+    { key: "overdue", label: "Overdue", subLabel: "Past due follow-ups", headerClass: "bg-red-50 border-red-100", countClass: "bg-red-100 text-red-700", items: [] },
+    { key: "today", label: "Today", subLabel: new Date(today).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }), headerClass: "bg-amber-50 border-amber-100", countClass: "bg-amber-100 text-amber-700", items: [] },
+    { key: "tomorrow", label: "Tomorrow", subLabel: "", headerClass: "bg-blue-50 border-blue-100", countClass: "bg-blue-100 text-blue-700", items: [] },
+    { key: "week", label: "This Week", subLabel: "Next 7 days", headerClass: "bg-gray-50 border-gray-100", countClass: "bg-gray-200 text-gray-700", items: [] },
+    { key: "later", label: "Later", subLabel: "Beyond a week", headerClass: "bg-gray-50 border-gray-100", countClass: "bg-gray-200 text-gray-700", items: [] },
+  ];
+
+  for (const item of items) {
+    if (!item.followup_date) {
+      buckets[4].items.push(item);
+      continue;
+    }
+    const t = startOfDay(new Date(item.followup_date));
+    if (t < today) buckets[0].items.push(item);
+    else if (t === today) buckets[1].items.push(item);
+    else if (t === today + day) buckets[2].items.push(item);
+    else if (t <= today + 7 * day) buckets[3].items.push(item);
+    else buckets[4].items.push(item);
+  }
+
+  return buckets.filter((b) => b.items.length > 0);
 }
 
 // =====================

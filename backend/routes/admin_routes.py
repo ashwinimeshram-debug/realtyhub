@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, current_app, abort
-from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog, Role, Permission, RolePermission, Owner, ListingTransaction, SavedSearch
+from models.models import db, Property, Admin, PropertyImage, PropertyTypeField, PropertyValue, Lead, LeadStatus, LeadHistory, LeadTransfer, PresetFeature, PropertyFeature, PropertyAuditLog, PropertyContact, PasswordResetRequest, ActivityLog, Role, Permission, RolePermission, Owner, ListingTransaction, Coupon, SavedSearch
 from models.contactus import Contactus
 from models.analytics_model import PageVisit
 from datetime import datetime, timedelta
@@ -21,6 +21,8 @@ from extensions import limiter
 from utils.helpers import generate_listing_id, paginate
 from utils.supabase_storage import delete_file
 from utils.images import process_image_upload
+from utils.leads_scope import is_closed_lead
+from utils.lead_transfer import record_lead_transfer
 from utils.mailer import get_site_name, password_reset_email, send_email_async, submission_confirmed_email, submission_rejected_email
 from utils.permissions import has_permission, is_admin, current_admin, admin_permissions, PERMISSION_CATALOG, require_permission
 from utils.leads_scope import internal_lead_condition
@@ -349,6 +351,9 @@ def get_all_properties():
 def get_property(id):
     prop = Property.query.get(id)
     if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    # Owner-posted listings (owner_id set) are visible to admins only.
+    if not is_admin(current_admin()) and prop.owner_id is not None:
         return jsonify({"error": "Property not found"}), 404
 
     owner_pc = PropertyContact.query.filter_by(property_id=id, type="owner").first()
@@ -883,8 +888,13 @@ def toggle_visibility(id):
 @admin_bp.route("/property/<int:id>/contacts", methods=["GET"])
 @jwt_required()
 def get_property_contacts(id):
+    _require_permission("properties.view")
     prop = Property.query.options(db.joinedload(Property.uploaded_admin)).get(id)
     if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    # Owner contact details are sensitive; hide owner-posted listings from
+    # non-admins exactly like the property list/detail endpoints do.
+    if not is_admin(current_admin()) and prop.owner_id is not None:
         return jsonify({"error": "Property not found"}), 404
     contacts = PropertyContact.query.filter_by(property_id=id).all()
     return jsonify({
@@ -1030,15 +1040,41 @@ def delete_image(image_id):
 @admin_bp.route("/reorder-images", methods=["POST"])
 @jwt_required()
 def reorder_images():
-    data = request.json
+    data = request.get_json(silent=True)
     if not isinstance(data, list):
         return jsonify({"error": "Expected a list of {id, order}"}), 400
+
+    entries = []
     for item in data:
         if not isinstance(item, dict) or "id" not in item or "order" not in item:
             return jsonify({"error": "Each item must have 'id' and 'order'"}), 400
-        img = PropertyImage.query.get(item["id"])
-        if img:
-            img.order = item["order"]
+        try:
+            img_id = int(item["id"])
+            order = int(item["order"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "'id' and 'order' must be integers"}), 400
+        if order < 0 or order > 1000:
+            return jsonify({"error": "'order' out of range"}), 400
+        entries.append((img_id, order))
+
+    images = PropertyImage.query.filter(PropertyImage.id.in_([i for i, _ in entries])).all()
+    by_id = {img.id: img for img in images}
+    prop_ids = {img.property_id for img in images if img.property_id is not None}
+
+    current = current_admin()
+    allowed = set()
+    if prop_ids:
+        for prop in Property.query.filter(Property.id.in_(prop_ids)).all():
+            if _can_manage_property(current, prop):
+                allowed.add(prop.id)
+
+    for img_id, order in entries:
+        img = by_id.get(img_id)
+        if not img:
+            continue
+        if img.property_id not in allowed:
+            return jsonify({"error": "Forbidden"}), 403
+        img.order = order
     db.session.commit()
     return jsonify({"message": "Reordered"})
 
@@ -1493,10 +1529,52 @@ def delete_user(id):
     user = Admin.query.get(id)
     if not user:
         return jsonify({"error": "Not found"}), 404
+
+    # Detach everything that references this admin so the DELETE does not
+    # violate a foreign key. Closed leads keep their stage/status/archive state
+    # ("as is"); open leads are freed for reassignment but also keep their stage
+    # so the next assignee continues from the step already reached.
+    open_count = 0
+    closed_count = 0
+    for lead in Lead.query.filter_by(assigned_to=id).all():
+        closed = is_closed_lead(lead)
+        record_lead_transfer(
+            lead, id, None,
+            reason="Assigned user deleted" + (" (closed lead kept as-is)" if closed else ""),
+            created_by=current.id,
+        )
+        lead.assigned_to = None
+        if closed:
+            closed_count += 1
+        else:
+            open_count += 1
+
+    Property.query.filter_by(uploaded_by=id).update(
+        {Property.uploaded_by: None}, synchronize_session=False
+    )
+    LeadHistory.query.filter_by(created_by=id).update(
+        {LeadHistory.created_by: None}, synchronize_session=False
+    )
+    LeadTransfer.query.filter_by(created_by=id).update(
+        {LeadTransfer.created_by: None}, synchronize_session=False
+    )
+
     db.session.delete(user)
     db.session.commit()
     _log_activity("deleted", "users", id)
-    return jsonify({"message": "User deleted"})
+    message = "User deleted"
+    parts = []
+    if open_count:
+        parts.append(f"{open_count} lead(s) unassigned")
+    if closed_count:
+        parts.append(f"{closed_count} closed lead(s) kept as-is")
+    if parts:
+        message += " (" + ", ".join(parts) + ")"
+    return jsonify({
+        "message": message,
+        "unassigned_leads": open_count,
+        "closed_leads": closed_count,
+    })
 
 
 # =========================
@@ -2038,8 +2116,152 @@ def payments_feature_property(id):
 
 
 # =========================
-# SEARCH ALERTS (saved searches)
+# COUPONS
 # =========================
+COUPON_APPLIES_TO = ("listing", "featured", "combo", "all")
+COUPON_DISCOUNT_TYPES = ("percent", "fixed")
+
+
+def _coupon_dict(c):
+    return {
+        "id": c.id,
+        "code": c.code,
+        "description": c.description,
+        "discount_type": c.discount_type,
+        "value": float(c.value) if c.value is not None else 0,
+        "max_discount": float(c.max_discount) if c.max_discount is not None else None,
+        "min_amount": float(c.min_amount) if c.min_amount is not None else 0,
+        "applies_to": c.applies_to,
+        "valid_from": c.valid_from.isoformat() if c.valid_from else None,
+        "valid_until": c.valid_until.isoformat() if c.valid_until else None,
+        "usage_limit": c.usage_limit,
+        "per_user_limit": c.per_user_limit,
+        "used_count": c.used_count or 0,
+        "is_active": bool(c.is_active),
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _apply_coupon_payload(c, data):
+    code = (data.get("code") or "").strip().upper()
+    if code:
+        c.code = code
+    if "description" in data:
+        c.description = (data.get("description") or "").strip() or None
+    if "discount_type" in data:
+        dt = (data.get("discount_type") or "percent").strip().lower()
+        if dt not in COUPON_DISCOUNT_TYPES:
+            raise ValueError("Invalid discount type")
+        c.discount_type = dt
+    if "value" in data:
+        try:
+            c.value = max(float(data.get("value") or 0), 0)
+        except (TypeError, ValueError):
+            raise ValueError("Invalid discount value")
+    if "max_discount" in data:
+        raw = data.get("max_discount")
+        try:
+            c.max_discount = max(float(raw), 0) if raw not in (None, "") else None
+        except (TypeError, ValueError):
+            raise ValueError("Invalid max discount")
+    if "min_amount" in data:
+        try:
+            c.min_amount = max(float(data.get("min_amount") or 0), 0)
+        except (TypeError, ValueError):
+            raise ValueError("Invalid minimum amount")
+    if "applies_to" in data:
+        scope = (data.get("applies_to") or "all").strip().lower()
+        if scope not in COUPON_APPLIES_TO:
+            raise ValueError("Invalid applies_to")
+        c.applies_to = scope
+    if "valid_from" in data:
+        c.valid_from = _parse_dt(data.get("valid_from"))
+    if "valid_until" in data:
+        c.valid_until = _parse_dt(data.get("valid_until"))
+    if "usage_limit" in data:
+        raw = data.get("usage_limit")
+        c.usage_limit = int(raw) if raw not in (None, "") else None
+    if "per_user_limit" in data:
+        raw = data.get("per_user_limit")
+        c.per_user_limit = int(raw) if raw not in (None, "") else None
+    if "is_active" in data:
+        c.is_active = bool(data.get("is_active"))
+
+
+@admin_bp.route("/coupons", methods=["GET"])
+@require_permission("payments.manage")
+def list_coupons():
+    coupons = Coupon.query.order_by(Coupon.created_at.desc()).all()
+    return jsonify({"items": [_coupon_dict(c) for c in coupons], "total": len(coupons)})
+
+
+@admin_bp.route("/coupons", methods=["POST"])
+@require_permission("payments.manage")
+def create_coupon():
+    data = request.json or {}
+    if not (data.get("code") or "").strip():
+        return jsonify({"error": "Coupon code is required"}), 400
+    code = data["code"].strip().upper()
+    if Coupon.query.filter(func.lower(Coupon.code) == code.lower()).first():
+        return jsonify({"error": "A coupon with this code already exists"}), 400
+    coupon = Coupon(code=code, value=0, min_amount=0, discount_type="percent", applies_to="all")
+    try:
+        _apply_coupon_payload(coupon, data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    db.session.add(coupon)
+    db.session.commit()
+    _log_activity("created", "coupons", coupon.id)
+    return jsonify(_coupon_dict(coupon)), 201
+
+
+@admin_bp.route("/coupons/<int:id>", methods=["PUT"])
+@require_permission("payments.manage")
+def update_coupon(id):
+    coupon = Coupon.query.get(id)
+    if not coupon:
+        return jsonify({"error": "Not found"}), 404
+    data = request.json or {}
+    new_code = (data.get("code") or "").strip().upper()
+    if new_code and new_code != coupon.code:
+        if Coupon.query.filter(func.lower(Coupon.code) == new_code.lower(), Coupon.id != id).first():
+            return jsonify({"error": "A coupon with this code already exists"}), 400
+    try:
+        _apply_coupon_payload(coupon, data)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    db.session.commit()
+    _log_activity("updated", "coupons", coupon.id)
+    return jsonify(_coupon_dict(coupon))
+
+
+@admin_bp.route("/coupons/<int:id>", methods=["DELETE"])
+@require_permission("payments.manage")
+def delete_coupon(id):
+    coupon = Coupon.query.get(id)
+    if not coupon:
+        return jsonify({"error": "Not found"}), 404
+    if (coupon.used_count or 0) > 0:
+        coupon.is_active = False
+        db.session.commit()
+        return jsonify({"message": "Coupon has redemptions; it was deactivated instead of deleted"})
+    db.session.delete(coupon)
+    db.session.commit()
+    _log_activity("deleted", "coupons", id)
+    return jsonify({"message": "Coupon deleted"})
+
+
+# =========================
+# SEARCH ALERTS (saved searches)# =========================
 @admin_bp.route("/saved-searches", methods=["GET"])
 @require_permission("alerts.manage")
 def admin_list_saved_searches():

@@ -35,6 +35,7 @@ PERMISSION_CATALOG = [
     {"code": "roles.manage", "label": "Manage roles & permissions", "module": "Users", "description": "Create roles and edit the permission matrix"},
     {"code": "settings.manage", "label": "Manage settings", "module": "Settings", "description": "Edit platform settings and lead routing options"},
     {"code": "payments.manage", "label": "Manage payments", "module": "Payments", "description": "View listing transactions and mark payments as paid or waived"},
+    {"code": "facebook.manage", "label": "Manage Facebook Lead Ads", "module": "Leads", "description": "Connect Facebook Pages and configure the Lead Ads webhook"},
     {"code": "alerts.manage", "label": "Manage search alerts", "module": "Alerts", "description": "View guest and registered saved-search alert subscriptions and who receives price/area alerts"},
 ]
 

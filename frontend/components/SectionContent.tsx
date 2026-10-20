@@ -1,13 +1,13 @@
 "use client";
 
-import DOMPurify from "dompurify";
+import DOMPurify from "isomorphic-dompurify";
 
 const ALLOWED = { ALLOWED_TAGS: ["b", "i", "u", "em", "strong", "p", "br", "ul", "ol", "li", "a", "span"], ALLOWED_ATTR: ["href", "class", "style"], ALLOWED_URI_REGEXP: /^(?:(?:https?|ftp|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i };
 
 const HAS_HTML = /<\/?[bi]>/;
 
 function sanitize(html: string) {
-  return typeof DOMPurify?.sanitize === "function" ? DOMPurify.sanitize(html, ALLOWED) : html;
+  return DOMPurify.sanitize(html, ALLOWED);
 }
 
 export default function SectionContent({

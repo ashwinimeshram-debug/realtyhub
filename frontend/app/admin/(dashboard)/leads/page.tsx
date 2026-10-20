@@ -81,6 +81,9 @@ interface Lead {
   first_response_at: string | null;
   sla_due_at: string | null;
   sla_overdue: boolean;
+  timeframe: string | null;
+  preferred_location: string | null;
+  budget: string | null;
 }
 
 interface LeadDetail extends Lead {
@@ -93,6 +96,15 @@ interface LeadDetail extends Lead {
     follow_up_date: string | null;
     created_by: number | null;
     created_at: string;
+  }[];
+  transfers: {
+    id: number;
+    from_admin_id: number | null;
+    to_admin_id: number | null;
+    from_admin_name: string | null;
+    to_admin_name: string | null;
+    reason: string | null;
+    created_at: string | null;
   }[];
 }
 
@@ -141,7 +153,6 @@ export default function LeadsPage() {
     isAdmin ? "all" : "unassigned"
   );
   const [employeeFilter, setEmployeeFilter] = useState<number | null>(null);
-  const [autoAssign, setAutoAssign] = useState(false);
 
   const fetchStats = useCallback(async (userId?: number | null) => {
     try {
@@ -199,9 +210,6 @@ export default function LeadsPage() {
   useEffect(() => {
     if (authLoading) return;
     fetchData();
-    API.get("/admin/settings").then((r) => {
-      setAutoAssign(r.data.auto_assign_leads === "true");
-    }).catch(() => {});
   }, [authLoading]);
 
   useEffect(() => {
@@ -275,15 +283,6 @@ export default function LeadsPage() {
     }
   };
 
-  const toggleAutoAssign = async (checked: boolean) => {
-    setAutoAssign(checked);
-    try {
-      await API.put("/admin/settings", { auto_assign_leads: String(checked) });
-    } catch {
-      setAutoAssign(!checked);
-    }
-  };
-
   const handleStageChange = async (leadId: number, stage: Stage) => {
     try {
       await API.patch(`/admin/leads/${leadId}/stage`, { stage });
@@ -331,17 +330,6 @@ export default function LeadsPage() {
         <div className="flex gap-2 flex-wrap items-center">
           {isAdmin && (
             <>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={autoAssign}
-                    onChange={(e) => toggleAutoAssign(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Auto
-                </label>
-              </div>
               <button
                   onClick={handleAutoAssign}
                   className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium transition"
@@ -711,67 +699,127 @@ function FollowUpsView({ onLeadClick }: { onLeadClick: (id: number) => void }) {
 
   if (loading) return <div className="text-gray-400">Loading follow-ups...</div>;
 
+  const groups = groupFollowupsByBucket(followups);
+
   return (
-    <div className="bg-white rounded-xl shadow overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="p-2 md:p-3 text-center">#</th>
-            <th className="p-2 md:p-3 text-center">Name</th>
-            <th className="p-2 md:p-3 text-center hidden sm:table-cell">Mobile</th>
-            <th className="p-2 md:p-3 text-center">Stage</th>
-            <th className="p-2 md:p-3 text-center">Type</th>
-            <th className="p-2 md:p-3 text-center">Follow-up Date</th>
-            <th className="p-2 md:p-3 text-center hidden md:table-cell">Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {followups.length === 0 ? (
-            <tr>
-              <td colSpan={7} className="p-4 text-center text-gray-400">No follow-ups scheduled</td>
-            </tr>
-          ) : (
-            followups.map((item, i) => {
-              const meta = STAGE_META[item.stage];
-              const badge = followUpBadge(item.followup_date);
-              return (
-                <tr
-                  key={item.id}
-                  onClick={() => onLeadClick(item.lead_id)}
-                  className="border-t hover:bg-gray-50 cursor-pointer"
-                >
-                  <td className="p-2 md:p-3">{i + 1}</td>
-                  <td className="p-2 md:p-3 font-medium">{item.lead_name}</td>
-                  <td className="p-2 md:p-3 hidden sm:table-cell">{item.lead_mobile || "-"}</td>
-                  <td className="p-2 md:p-3">
-                    <span
-                      className="px-2 py-0.5 rounded text-xs font-medium text-white"
-                      style={{ backgroundColor: meta?.color || "#9ca3af" }}
-                    >
-                      {meta?.label || item.stage}
-                    </span>
-                  </td>
-                  <td className="p-2 md:p-3 text-xs text-gray-500">{item.type}</td>
-                  <td className="p-2 md:p-3 text-sm font-medium">
-                    {item.followup_date ? (
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${badge.bg} ${badge.text}`}>
-                        {new Date(item.followup_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-                      </span>
-                    ) : "-"}
-                  </td>
-                  <td className="p-2 md:p-3 hidden md:table-cell">
-                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${getSourceBadge(item.source).className}`}>
-                      {getSourceBadge(item.source).label}
-                    </span>
-                  </td>
+    <div className="space-y-5">
+      {followups.length === 0 && (
+        <div className="bg-white rounded-xl shadow p-8 text-center text-gray-400">
+          No follow-ups scheduled
+        </div>
+      )}
+      {groups.map((group) => (
+        <div key={group.key} className="bg-white rounded-xl shadow overflow-hidden">
+          <div className={`flex items-center justify-between px-4 py-2.5 border-b ${group.headerClass}`}>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm">{group.label}</span>
+              <span className="text-xs text-gray-500">{group.subLabel}</span>
+            </div>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${group.countClass}`}>
+              {group.items.length}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="p-2 md:p-3 text-center">#</th>
+                  <th className="p-2 md:p-3 text-center">Name</th>
+                  <th className="p-2 md:p-3 text-center hidden sm:table-cell">Mobile</th>
+                  <th className="p-2 md:p-3 text-center">Stage</th>
+                  <th className="p-2 md:p-3 text-center">Type</th>
+                  <th className="p-2 md:p-3 text-center">Follow-up Date</th>
+                  <th className="p-2 md:p-3 text-center hidden md:table-cell">Source</th>
                 </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
+              </thead>
+              <tbody>
+                {group.items.map((item, i) => {
+                  const meta = STAGE_META[item.stage];
+                  const badge = followUpBadge(item.followup_date);
+                  return (
+                    <tr
+                      key={item.id}
+                      onClick={() => onLeadClick(item.lead_id)}
+                      className="border-t hover:bg-gray-50 cursor-pointer"
+                    >
+                      <td className="p-2 md:p-3">{i + 1}</td>
+                      <td className="p-2 md:p-3 font-medium">{item.lead_name}</td>
+                      <td className="p-2 md:p-3 hidden sm:table-cell">{item.lead_mobile || "-"}</td>
+                      <td className="p-2 md:p-3">
+                        <span
+                          className="px-2 py-0.5 rounded text-xs font-medium text-white"
+                          style={{ backgroundColor: meta?.color || "#9ca3af" }}
+                        >
+                          {meta?.label || item.stage}
+                        </span>
+                      </td>
+                      <td className="p-2 md:p-3 text-xs text-gray-500">{item.type}</td>
+                      <td className="p-2 md:p-3 text-sm font-medium">
+                        {item.followup_date ? (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${badge.bg} ${badge.text}`}>
+                            {new Date(item.followup_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                          </span>
+                        ) : "-"}
+                      </td>
+                      <td className="p-2 md:p-3 hidden md:table-cell">
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${getSourceBadge(item.source).className}`}>
+                          {getSourceBadge(item.source).label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
     </div>
   );
+}
+
+// Groups follow-ups into date buckets so the user can see at a glance whom to
+// contact today. The API already returns rows sorted by follow-up date.
+function groupFollowupsByBucket(items: FollowupItem[]) {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const startOfDay = (d: Date) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x.getTime();
+  };
+  const today = startOfDay(now);
+  const day = 86400000;
+
+  const buckets: {
+    key: string;
+    label: string;
+    subLabel: string;
+    headerClass: string;
+    countClass: string;
+    items: FollowupItem[];
+  }[] = [
+    { key: "overdue", label: "Overdue", subLabel: "Past due follow-ups", headerClass: "bg-red-50 border-red-100", countClass: "bg-red-100 text-red-700", items: [] },
+    { key: "today", label: "Today", subLabel: new Date(today).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }), headerClass: "bg-amber-50 border-amber-100", countClass: "bg-amber-100 text-amber-700", items: [] },
+    { key: "tomorrow", label: "Tomorrow", subLabel: "", headerClass: "bg-blue-50 border-blue-100", countClass: "bg-blue-100 text-blue-700", items: [] },
+    { key: "week", label: "This Week", subLabel: "Next 7 days", headerClass: "bg-gray-50 border-gray-100", countClass: "bg-gray-200 text-gray-700", items: [] },
+    { key: "later", label: "Later", subLabel: "Beyond a week", headerClass: "bg-gray-50 border-gray-100", countClass: "bg-gray-200 text-gray-700", items: [] },
+  ];
+
+  for (const item of items) {
+    if (!item.followup_date) {
+      buckets[4].items.push(item);
+      continue;
+    }
+    const t = startOfDay(new Date(item.followup_date));
+    if (t < today) buckets[0].items.push(item);
+    else if (t === today) buckets[1].items.push(item);
+    else if (t === today + day) buckets[2].items.push(item);
+    else if (t <= today + 7 * day) buckets[3].items.push(item);
+    else buckets[4].items.push(item);
+  }
+
+  return buckets.filter((b) => b.items.length > 0);
 }
 
 
@@ -1007,6 +1055,24 @@ function LeadDetailModal({
                 </div>
               );
             })()}
+            {lead.preferred_location && (
+              <div>
+                <p className="text-xs text-gray-400">Preferred Location</p>
+                <p className="text-sm font-medium">{lead.preferred_location}</p>
+              </div>
+            )}
+            {lead.budget && (
+              <div>
+                <p className="text-xs text-gray-400">Budget</p>
+                <p className="text-sm font-medium">{lead.budget}</p>
+              </div>
+            )}
+            {lead.timeframe && (
+              <div>
+                <p className="text-xs text-gray-400">Buying Timeframe</p>
+                <p className="text-sm font-medium">{lead.timeframe}</p>
+              </div>
+            )}
           </div>
 
           {/* Not Interested / Reopen buttons */}
@@ -1183,6 +1249,24 @@ function LeadDetailModal({
                 >
                   Cancel
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* TRANSFER HISTORY */}
+          {lead.transfers && lead.transfers.length > 0 && (
+            <div className="mb-6">
+              <h3 className="font-semibold text-sm mb-3">Transfer History</h3>
+              <div className="space-y-2">
+                {lead.transfers.map((t) => (
+                  <div key={t.id} className="flex flex-wrap items-center gap-2 bg-gray-50 border rounded-lg px-3 py-2 text-xs">
+                    <span className="font-medium text-gray-700">{t.from_admin_name || "Unassigned"}</span>
+                    <span className="text-gray-400">→</span>
+                    <span className="font-medium text-gray-700">{t.to_admin_name || "Unassigned"}</span>
+                    {t.reason && <span className="text-gray-500">· {t.reason}</span>}
+                    <span className="ml-auto text-gray-400">{t.created_at}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

@@ -72,6 +72,11 @@ function CheckoutInner() {
   const [done, setDone] = useState(false);
   const [includeFeatured, setIncludeFeatured] = useState(false);
 
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discount: number } | null>(null);
+  const [couponMsg, setCouponMsg] = useState("");
+  const [couponChecking, setCouponChecking] = useState(false);
+
   const fmt = (n: number) =>
     `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
@@ -118,7 +123,45 @@ function CheckoutInner() {
   const comboActive = showCombo && includeFeatured;
   const comboTotal = ((plan?.price ?? 0) + featuredDiscounted);
   const comboSavings = featuredListed - featuredDiscounted;
-  const payable = comboActive ? comboTotal : (plan?.price ?? 0);
+  const basePayable = comboActive ? comboTotal : (plan?.price ?? 0);
+  const couponDiscount = coupon ? Math.min(coupon.discount, basePayable) : 0;
+  const payable = Math.max(basePayable - couponDiscount, 0);
+
+  const effectivePurpose = comboActive ? "combo" : purpose;
+
+  const applyCoupon = async () => {
+    const code = couponInput.trim();
+    if (!code) return;
+    setCouponChecking(true);
+    setCouponMsg("");
+    try {
+      const res = await API.post("/owner/coupons/validate", {
+        code,
+        purpose: effectivePurpose,
+        property_id: id,
+      });
+      const data = res.data;
+      if (data?.valid) {
+        setCoupon({ code: data.code || code.toUpperCase(), discount: Number(data.discount_amount) || 0 });
+        setCouponMsg("");
+        toast(`Coupon applied — you save ${fmt(Number(data.discount_amount) || 0)}`, "success");
+      } else {
+        setCoupon(null);
+        setCouponMsg(data?.reason || "This coupon is not valid for this purchase.");
+      }
+    } catch (err: any) {
+      setCoupon(null);
+      setCouponMsg(err?.response?.data?.error || "Could not validate this coupon");
+    } finally {
+      setCouponChecking(false);
+    }
+  };
+
+  const clearCoupon = () => {
+    setCoupon(null);
+    setCouponInput("");
+    setCouponMsg("");
+  };
 
   const finishSuccess = () => {
     setDone(true);
@@ -131,7 +174,10 @@ function CheckoutInner() {
     const payPurpose = comboActive ? "combo" : purpose;
     setPaying(true);
     try {
-      const res = await API.post(`/owner/properties/${id}/checkout`, { purpose: payPurpose });
+      const res = await API.post(`/owner/properties/${id}/checkout`, {
+        purpose: payPurpose,
+        coupon_code: coupon?.code || undefined,
+      });
       const data = res.data;
 
       if (data.provider === "mock" || !data.uses_client_js) {
@@ -283,6 +329,39 @@ function CheckoutInner() {
               <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                 All featured slots are currently full. Featured placement is temporarily
                 unavailable — please try again once a slot frees up.
+              </div>
+            )}
+
+            {plans.payment_required && basePayable > 0 && (
+              <div className="mb-5">
+                {coupon ? (
+                  <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    <span className="font-semibold">{coupon.code} applied</span>
+                    <span className="flex items-center gap-3">
+                      <span>−{fmt(couponDiscount)}</span>
+                      <button type="button" onClick={clearCoupon} className="text-xs text-emerald-700 underline">Remove</button>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                      placeholder="Coupon code"
+                      className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm uppercase tracking-wide focus:outline-none focus:border-blue-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={applyCoupon}
+                      disabled={couponChecking || !couponInput.trim()}
+                      className="btn btn-ghost px-4 disabled:opacity-50"
+                    >
+                      {couponChecking ? "Checking…" : "Apply"}
+                    </button>
+                  </div>
+                )}
+                {couponMsg && <p className="text-xs text-red-600 mt-2">{couponMsg}</p>}
               </div>
             )}
 

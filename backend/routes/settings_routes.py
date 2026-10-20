@@ -57,7 +57,8 @@ def public_get_settings():
 
 
 SECRET_SETTING_KEYS = {"mail_password", "whatsapp_access_token", "twilio_auth_token",
-                       "payment_key_secret", "payment_webhook_secret", "ai_api_key"}
+                       "payment_key_secret", "payment_webhook_secret", "ai_api_key",
+                       "facebook_app_secret"}
 
 
 @settings_bp.route("/admin/settings", methods=["GET"])

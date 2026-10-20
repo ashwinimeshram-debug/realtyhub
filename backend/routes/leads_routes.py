@@ -1,13 +1,14 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
-from models.models import Lead, LeadStatus, LeadHistory, PropertyContact, Admin, Property
+from models.models import Lead, LeadStatus, LeadHistory, LeadTransfer, PropertyContact, Admin, Property
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from utils.helpers import paginate
 from utils.permissions import has_permission
 from utils.sla import apply_sla, mark_first_response
-from utils.leads_scope import internal_lead_condition, is_owner_posted_lead
+from utils.leads_scope import internal_lead_condition, is_owner_posted_lead, closed_lead_condition
+from utils.lead_transfer import record_lead_transfer
 
 leads_bp = Blueprint("leads", __name__)
 
@@ -58,6 +59,7 @@ def _auto_assign_lead(lead):
     target = _least_loaded_executive(executives)
     if target:
         lead.assigned_to = target.id
+        record_lead_transfer(lead, None, target.id, reason="Auto-assigned")
         new_status = LeadStatus.query.filter_by(name="New").first()
         if new_status and not lead.status:
             lead.status = new_status.id
@@ -103,6 +105,9 @@ def _lead_dict(l, admin_map=None, followup_map=None):
         "rejection_reason": l.rejection_reason,
         "archived_at": l.archived_at.isoformat() if l.archived_at else None,
         "notes": l.notes,
+        "timeframe": l.timeframe,
+        "preferred_location": l.preferred_location,
+        "budget": l.budget,
         "first_response_at": l.first_response_at.isoformat() if l.first_response_at else None,
         "sla_due_at": l.sla_due_at.isoformat() if l.sla_due_at else None,
         "sla_overdue": bool(
@@ -184,6 +189,19 @@ def _lead_detail_dict(l):
             "created_by_name": (creator.name or creator.username) if creator else None,
             "created_at": h.created_at.isoformat() if h.created_at else None,
         })
+
+    transfers = LeadTransfer.query.filter_by(lead_id=l.id).order_by(
+        LeadTransfer.created_at.asc()
+    ).all()
+    d["transfers"] = [{
+        "id": t.id,
+        "from_admin_id": t.from_admin_id,
+        "to_admin_id": t.to_admin_id,
+        "from_admin_name": t.from_admin_name,
+        "to_admin_name": t.to_admin_name,
+        "reason": t.reason,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    } for t in transfers]
     return d
 
 
@@ -211,7 +229,8 @@ def get_leads():
     # scope=unassigned surfaces the open lead pool so staff can claim leads.
     if not is_admin:
         if request.args.get("scope") == "unassigned":
-            query = query.filter(Lead.assigned_to.is_(None))
+            # Offer only actionable leads: never closed/won/lost/archived ones.
+            query = query.filter(Lead.assigned_to.is_(None), ~closed_lead_condition())
         else:
             query = query.filter(_lead_scope(current_admin))
     elif user_id:
@@ -315,7 +334,13 @@ def assign_lead(id):
     if is_owner_posted_lead(lead):
         return jsonify({"error": "Owner-managed leads cannot be assigned here"}), 400
     data = request.json or {}
-    user_id = data.get("user_id")
+    raw_uid = data.get("user_id")
+    try:
+        user_id = int(raw_uid) if raw_uid else None
+    except (ValueError, TypeError):
+        user_id = None
+
+    old_assigned = lead.assigned_to
     if has_permission(admin, "leads.assign"):
         lead.assigned_to = user_id if user_id else None
     else:
@@ -324,15 +349,26 @@ def assign_lead(id):
             abort(403, description="Permission denied")
         if lead.assigned_to is not None:
             return jsonify({"error": "Lead is already assigned"}), 400
-        if not user_id or int(user_id) != admin.id:
+        if not user_id or user_id != admin.id:
             return jsonify({"error": "You can only claim leads for yourself"}), 403
         lead.assigned_to = admin.id
     db.session.commit()
 
-    new_status = LeadStatus.query.filter_by(name="New").first()
-    if new_status and not lead.status:
-        lead.status = new_status.id
+    if lead.assigned_to != old_assigned:
+        reason = data.get("reason")
+        if old_assigned is None and lead.assigned_to == admin.id and not reason:
+            reason = "Claimed"
+        record_lead_transfer(lead, old_assigned, lead.assigned_to,
+                             reason=reason, created_by=admin.id)
         db.session.commit()
+
+    # Label only a genuinely new lead as "New". Preserve the pipeline stage so a
+    # reassigned lead continues from the step it had reached.
+    if not lead.status and (lead.stage or "NEW").upper() == "NEW":
+        new_status = LeadStatus.query.filter_by(name="New").first()
+        if new_status:
+            lead.status = new_status.id
+            db.session.commit()
 
     return jsonify({"message": "Lead assigned"})
 
@@ -352,6 +388,7 @@ def auto_assign():
 
     query = Lead.query.filter(Lead.assigned_to.is_(None))
     query = query.filter(internal_lead_condition())
+    query = query.filter(~closed_lead_condition())
     if lead_ids:
         query = query.filter(Lead.id.in_(lead_ids))
 
@@ -369,11 +406,14 @@ def auto_assign():
     lead_count_map = {uid: cnt for uid, cnt in counts}
 
     new_status = LeadStatus.query.filter_by(name="New").first()
+    current_admin_id = int(get_jwt_identity())
     for lead in unassigned:
         target = _least_loaded_executive(executives, lead_count_map)
         lead.assigned_to = target.id
         lead_count_map[target.id] = lead_count_map.get(target.id, 0) + 1
-        if new_status and not lead.status:
+        record_lead_transfer(lead, None, target.id, reason="Auto-assigned",
+                             created_by=current_admin_id)
+        if new_status and not lead.status and (lead.stage or "NEW").upper() == "NEW":
             lead.status = new_status.id
 
     db.session.commit()
@@ -775,6 +815,21 @@ def get_executives():
 # =========================
 # CREATE LEAD FROM CONTACT
 # =========================
+def _can_touch_property(admin, prop):
+    """True when the staff user may act on this property's contacts."""
+    from utils.permissions import is_admin
+
+    if not admin or not admin.is_active:
+        return False
+    if is_admin(admin):
+        return True
+    if has_permission(admin, "properties.edit"):
+        return True
+    if has_permission(admin, "properties.manage_own") and prop.uploaded_by == admin.id:
+        return True
+    return False
+
+
 @leads_bp.route("/admin/leads/from-contact/<int:contact_id>", methods=["POST"])
 @jwt_required()
 def create_lead_from_contact(contact_id):
@@ -782,6 +837,10 @@ def create_lead_from_contact(contact_id):
     pc = PropertyContact.query.get(contact_id)
     if not pc:
         return jsonify({"error": "Contact not found"}), 404
+    prop = Property.query.get(pc.property_id) if pc.property_id else None
+    current = Admin.query.get(int(get_jwt_identity()))
+    if prop and not _can_touch_property(current, prop):
+        return jsonify({"error": "Forbidden"}), 403
     lead = Lead(name=pc.name, email=pc.email, mobile=pc.mobile,
                 source="connect", property_id=pc.property_id)
     apply_sla(lead)

@@ -44,6 +44,11 @@ logger = logging.getLogger("realtyhub")
 
 owner_bp = Blueprint("owner", __name__)
 
+
+class CouponRejectedError(Exception):
+    """Raised when a supplied coupon code fails server-side validation."""
+
+
 VALID_TRANSACTION_TYPES = {"buy", "sell", "rent", "resale"}
 VALID_PROPERTY_TYPES = {"flat", "house", "plot", "commercial", "villa", "bungalow", "penthouse", "other"}
 VALID_LISTED_BY = {"owner", "agent", "broker"}
@@ -732,6 +737,8 @@ def _txn_dict(txn):
         "duration_days": txn.duration_days,
         "featured_days": txn.featured_days or 0,
         "discount_percent": float(txn.discount_percent) if txn.discount_percent else 0,
+        "coupon_code": txn.coupon_code,
+        "coupon_discount": float(txn.coupon_discount) if txn.coupon_discount else 0,
         "status": txn.status,
         "method": txn.method,
         "provider": txn.provider,
@@ -741,8 +748,8 @@ def _txn_dict(txn):
     }
 
 
-def _create_checkout(prop, purpose):
-    """Create a pending transaction and provider order for a listing/feature/combo."""
+def _create_checkout(prop, purpose, coupon_code=None):
+    """Create a pending transaction and provider order for a listing/feature/combо."""
     featured_days = 0
     discount_percent = 0
 
@@ -767,6 +774,20 @@ def _create_checkout(prop, purpose):
         amount = plan["price"]
         duration_days = plan["duration_days"]
 
+    # Coupon: validated server-side against the pre-coupon amount. A rejected
+    # code never silently discounts; the client is told which code failed.
+    coupon = None
+    coupon_discount = 0.0
+    if coupon_code:
+        from utils.coupons import validate_coupon
+        check = validate_coupon(coupon_code, purpose, amount, owner_id=g.owner.id)
+        if not check["valid"]:
+            raise CouponRejectedError(check["message"])
+        from utils.coupons import find_coupon
+        coupon = find_coupon(coupon_code)
+        coupon_discount = check["discount_amount"]
+        amount = check["new_total"]
+
     provider = payment_gateway.get_payment_provider()
     currency = plan_currency()
 
@@ -780,6 +801,9 @@ def _create_checkout(prop, purpose):
         duration_days=duration_days,
         featured_days=featured_days,
         discount_percent=discount_percent,
+        coupon_id=coupon.id if coupon else None,
+        coupon_code=coupon.code if coupon else None,
+        coupon_discount=coupon_discount,
         provider=provider.name,
         method="online",
         status="pending",
@@ -806,6 +830,8 @@ def _create_checkout(prop, purpose):
         "duration_days": duration_days,
         "featured_days": featured_days,
         "discount_percent": discount_percent,
+        "coupon_code": coupon.code if coupon else None,
+        "coupon_discount": coupon_discount,
         "provider": provider.name,
         "uses_client_js": getattr(provider, "uses_client_js", False),
         "public_key": getattr(provider, "public_key", ""),
@@ -836,8 +862,11 @@ def checkout_property(id):
     if purpose == "combo" and is_effectively_featured(prop):
         return jsonify({"error": "This listing is already featured. Extend the boost from the Feature action instead.",
                         "code": "already_featured"}), 400
+    coupon_code = (data.get("coupon_code") or "").strip() or None
     try:
-        payload = _create_checkout(prop, purpose)
+        payload = _create_checkout(prop, purpose, coupon_code=coupon_code)
+    except CouponRejectedError as e:
+        return jsonify({"error": str(e), "code": "coupon_invalid"}), 400
     except FeaturedSlotsFullError:
         return jsonify({"error": "All featured slots are currently full. Please try again later.",
                         "code": "featured_full"}), 409
@@ -884,6 +913,25 @@ def feature_property(id):
     except Exception as e:
         logger.warning("Feature checkout failed property=%s: %s", id, e)
         return jsonify({"error": "Could not start checkout"}), 500
+
+
+@owner_bp.route("/coupons/validate", methods=["POST"])
+@owner_required
+@limiter.limit("60/hour")
+def validate_owner_coupon():
+    """Validate a coupon code against a property + purpose and return the total."""
+    from utils.coupons import validate_coupon, base_amount_for
+
+    data = request.json or {}
+    code = (data.get("code") or "").strip()
+    purpose = (data.get("purpose") or "listing").strip().lower()
+    if purpose not in ("listing", "featured", "combo"):
+        return jsonify({"error": "Invalid purpose"}), 400
+    prop = _own_or_404(data.get("property_id")) if data.get("property_id") else None
+    if not prop:
+        return jsonify({"error": "Property not found"}), 404
+    base = base_amount_for(prop, purpose)
+    return jsonify(validate_coupon(code, purpose, base, owner_id=g.owner.id))
 
 
 @owner_bp.route("/transactions", methods=["GET"])
