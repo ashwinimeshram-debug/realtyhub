@@ -18,13 +18,25 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _pg_trgm_available(conn) -> bool:
+    try:
+        conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        return True
+    except Exception:
+        return False
+
+
 def upgrade() -> None:
     """Add a GIN trigram index so keyword search can use ILIKE on description.
 
     The public search ORs title/location/description ILIKE clauses; without an
     index on description the whole OR falls back to a sequential scan.
+
+    Skipped when the pg_trgm contrib module is unavailable (shared hosting).
     """
-    op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    conn = op.get_bind()
+    if not _pg_trgm_available(conn):
+        return
     op.create_index(
         'idx_property_description_trgm',
         'properties',
@@ -36,9 +48,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        'idx_property_description_trgm',
-        table_name='properties',
-        postgresql_using='gin',
-        postgresql_ops={'description': 'gin_trgm_ops'},
-    )
+    op.execute("DROP INDEX IF EXISTS idx_property_description_trgm")

@@ -58,15 +58,22 @@ def create_app():
         # `alembic upgrade head` as a deploy step.
         if os.getenv("FLASK_ENV", "development") != "production":
             # GIN trigram indexes rely on the pg_trgm extension (created by
-            # Alembic in production; ensure it exists before create_all here).
+            # Alembic in production). Shared hosting Postgres may not provide
+            # it; fall back to creating tables without the trigram indexes.
+            from sqlalchemy import text
+            has_trgm = False
             try:
-                from sqlalchemy import text
                 if db.engine.dialect.name == "postgresql":
                     db.session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
                     db.session.commit()
+                    has_trgm = True
             except Exception as exc:  # pragma: no cover - best effort
+                db.session.rollback()
                 logger.warning("pg_trgm extension setup skipped: %s", exc)
-            db.create_all()
+            if has_trgm:
+                db.create_all()
+            else:
+                _create_all_without_trgm()
         _seed_rbac()
         _seed_defaults()
 
@@ -106,6 +113,35 @@ def _import_all_models():
     from models.testimonial_model import Testimonial
     from models.setting_model import Setting
     from models.analytics_model import PageVisit, SearchLog, BannerClick
+
+
+_TRGM_INDEX_NAMES = {
+    "idx_property_title_trgm",
+    "idx_property_location_trgm",
+    "idx_property_description_trgm",
+}
+
+
+def _create_all_without_trgm():
+    """Dev-only: create tables while omitting pg_trgm GIN indexes.
+
+    Used when the database lacks the pg_trgm extension so ``create_all`` does
+    not fail on the ``gin_trgm_ops`` operator class. Trigram indexes are then
+    absent (search falls back to ILIKE seq scans), matching production on hosts
+    without the extension.
+    """
+    from models.models import Property
+    skipped = []
+    for index in list(Property.__table__.indexes):
+        if index.name in _TRGM_INDEX_NAMES:
+            Property.__table__.indexes.discard(index)
+            skipped.append(index.name)
+    try:
+        db.create_all()
+    finally:
+        for index in skipped:
+            if index not in Property.__table__.indexes:
+                Property.__table__.indexes.add(index)
 
 
 def _register_blueprints(app):

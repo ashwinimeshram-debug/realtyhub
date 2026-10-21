@@ -5,9 +5,34 @@ both always apply identical filters.
 """
 import math
 
-from sqlalchemy import or_, func, literal
+from sqlalchemy import or_, func, literal, text
 
 from models.models import db, Property
+
+_PG_TRGM_AVAILABLE = None
+
+
+def pg_trgm_available():
+    """Return True if the pg_trgm extension is installed on this database.
+
+    Shared hosting Postgres (e.g. HostyCare) may not ship the contrib package,
+    in which case trigram indexes and the ``<%``/``word_similarity`` operators
+    are unavailable. The result is cached per process.
+    """
+    global _PG_TRGM_AVAILABLE
+    if _PG_TRGM_AVAILABLE is not None:
+        return _PG_TRGM_AVAILABLE
+    try:
+        if db.engine.dialect.name != "postgresql":
+            _PG_TRGM_AVAILABLE = False
+            return False
+        row = db.session.execute(
+            text("select 1 from pg_extension where extname = 'pg_trgm'")
+        ).first()
+        _PG_TRGM_AVAILABLE = row is not None
+    except Exception:  # pragma: no cover - best effort
+        _PG_TRGM_AVAILABLE = False
+    return _PG_TRGM_AVAILABLE
 
 
 def apply_near(query, near, radius_km=5.0):
@@ -65,17 +90,19 @@ def apply_property_filters(query, params):
         query = query.filter(Property.location.ilike(f"%{location}%"))
     if keyword:
         pattern = f"%{keyword}%"
+        clauses = [
+            Property.title.ilike(pattern),
+            Property.location.ilike(pattern),
+            Property.description.ilike(pattern),
+        ]
         # Substring match (index-accelerated by GIN trigram) plus fuzzy
         # trigram match (the `<%` operator) so typos still return results.
-        query = query.filter(
-            or_(
-                Property.title.ilike(pattern),
-                Property.location.ilike(pattern),
-                Property.description.ilike(pattern),
-                literal(keyword).op("<%")(Property.title),
-                literal(keyword).op("<%")(Property.location),
-            )
-        )
+        # The fuzzy clauses require the pg_trgm extension, which shared
+        # hosting Postgres may not provide.
+        if pg_trgm_available():
+            clauses.append(literal(keyword).op("<%")(Property.title))
+            clauses.append(literal(keyword).op("<%")(Property.location))
+        query = query.filter(or_(*clauses))
     if transaction_type:
         query = query.filter_by(transaction_type=transaction_type)
     if property_type:

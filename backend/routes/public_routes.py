@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from models.models import db, Admin, Owner, Property, PropertyImage, PropertyContact, PropertyTypeField, PropertyValue, Lead, PresetFeature, PropertyFeature
 from utils.helpers import generate_listing_id, paginate
 from sqlalchemy import or_, func
-from utils.search import apply_property_filters
+from utils.search import apply_property_filters, pg_trgm_available
 from utils.listing_lifecycle import (
     public_visible_condition, owner_visible_condition,
 )
@@ -254,7 +254,7 @@ def get_properties():
         query = query.order_by(Property.price.desc())
     elif sort == "featured":
         query = query.order_by(Property.is_featured.desc(), Property.created_at.desc())
-    elif keyword and sort in ("relevance", "newest", ""):
+    elif keyword and sort in ("relevance", "newest", "") and pg_trgm_available():
         # pg_trgm similarity ranking (falls back to recency on ties)
         similarity = func.greatest(
             func.word_similarity(keyword, Property.title),
