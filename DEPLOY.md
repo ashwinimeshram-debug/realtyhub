@@ -37,6 +37,13 @@ cPanel → **PostgreSQL Databases**:
 2. Create user, e.g. `realtyhub` → becomes `sumatien_realtyhub`.
 3. Add user to database with **ALL PRIVILEGES**.
 
+> HostyCare notes (learned the hard way):
+> - Postgres is **not** on `localhost` (that resolves to `::1`, rejected by
+>   `pg_hba.conf`). It listens on **`127.0.0.200:5432`** (see phpPgAdmin's server
+>   banner). Use that host in `DATABASE_URL`.
+> - `pg_trgm` (contrib) is **not installed**. The migrations detect this and
+>   skip the trigram GIN indexes; set-based search still works via ILIKE.
+
 ## 3. Backend environment
 
 ```bash
@@ -49,6 +56,11 @@ nano .env   # fill DATABASE_URL, secrets, CORS_ORIGINS, FRONTEND_URL, CRON_KEY
 ```
 
 URL-encode special characters in the DB password (`@` → `%40`, `#` → `%23`, etc.).
+The `DATABASE_URL` host must be `127.0.0.200` on HostyCare, e.g.:
+
+```
+DATABASE_URL=postgresql+psycopg2://sumatien_realtyhub:PASS@127.0.0.200:5432/sumatien_plotandroof
+```
 
 ## 4. Setup Python App (Flask API)
 
@@ -58,6 +70,19 @@ cPanel → **Setup Python App → Create Application**:
 - Application URL: `api.plotandroof.com`
 - Application startup file: `passenger_wsgi.py`
 - Entry point: `application`
+
+> cPanel **overwrites** `passenger_wsgi.py` with its own self-importing stub
+> (`imp.load_source('wsgi', 'passenger_wsgi.py')`), which recurses for a Flask
+> app. After creating the app, restore the repo version:
+> ```bash
+> cd ~/realtyhub/backend
+> cat > passenger_wsgi.py <<'PY'
+> """Passenger WSGI entrypoint (cPanel "Setup Python App")."""
+> from app import create_app
+>
+> application = create_app()
+> PY
+> ```
 
 Then install dependencies (use the venv path cPanel shows, or the "Enter to the
 virtual environment" command):
