@@ -1,7 +1,12 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api";
 
-export const BACKEND_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, "");
+// Uploaded media is served by the backend origin directly (the /api proxy does
+// not cover /uploads). Prefer the explicit backend URL so relative API bases
+// (e.g. same-origin "/api") still resolve to an absolute media host.
+export const BACKEND_BASE_URL = (
+  process.env.NEXT_PUBLIC_BACKEND_URL || API_BASE_URL
+).replace(/\/api\/?$/, "").replace(/\/+$/, "");
 
 export const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
