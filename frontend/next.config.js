@@ -53,6 +53,12 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
+  // Shared hosting reports a huge nproc (e.g. 256) which makes Next spawn
+  // dozens of build workers and hit the process limit (spawn EAGAIN).
+  // Cap the worker count so builds stay within cPanel resource limits.
+  experimental: {
+    cpus: Number(process.env.NEXT_BUILD_CPUS || 1),
+  },
   images: {
     formats: ["image/avif", "image/webp"],
     minimumCacheTTL: 2592000,
