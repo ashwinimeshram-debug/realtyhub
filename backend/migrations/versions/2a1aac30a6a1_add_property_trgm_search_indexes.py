@@ -18,18 +18,30 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def _pg_trgm_available(conn) -> bool:
+def _pg_trgm_available() -> bool:
+    """Probe for pg_trgm on a *separate* connection.
+
+    Running CREATE EXTENSION on the migration's own connection would abort the
+    migration transaction when the extension is unavailable, breaking the
+    subsequent alembic_version update (InFailedSqlTransaction).
+    """
+    from sqlalchemy import create_engine, text
+
+    url = op.get_context().config.get_main_option("sqlalchemy.url")
+    engine = create_engine(url, isolation_level="AUTOCOMMIT")
     try:
-        conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        with engine.connect() as c:
+            c.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         return True
     except Exception:
         return False
+    finally:
+        engine.dispose()
 
 
 def upgrade() -> None:
     """Upgrade schema."""
-    conn = op.get_bind()
-    if not _pg_trgm_available(conn):
+    if not _pg_trgm_available():
         # pg_trgm contrib module unavailable (common on shared hosting).
         # Search still works via ILIKE; only the fuzzy <%%/similarity
         # acceleration is skipped.
