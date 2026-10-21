@@ -65,12 +65,15 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_recycle": 3600,
+        "pool_recycle": 1800,
         "pool_pre_ping": True,
         # Passenger runs a small number of workers on shared cPanel; keep the
-        # pool modest so total connections stay within the Postgres limit.
-        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "5")),
+        # pool very modest so total connections stay within the shared Postgres
+        # limit (hosts often cap at a handful of slots, some reserved for
+        # superusers). 1+1 keeps a permanent connection plus one burst.
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "2")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "1")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
     }
 
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
