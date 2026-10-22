@@ -128,6 +128,12 @@ function PostPropertyForm() {
   }, [selectedOverviewId, selectedClosingId, selectedChips, templates, templateVars, typeNames]);
 
   useEffect(() => {
+    if (!authLoading && owner && !owner.is_verified) {
+      router.replace("/verify-email");
+    }
+  }, [authLoading, owner, router]);
+
+  useEffect(() => {
     API.get("/types?category=property").then((r) => setPropertyTypes(r.data)).catch(() => {});
     API.get("/types?category=transaction").then((r) => setTransactionTypes(r.data)).catch(() => {});
     API.get("/preset-features").then((r) => setPresetFeatures(r.data)).catch(() => {});

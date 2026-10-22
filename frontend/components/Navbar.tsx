@@ -56,6 +56,7 @@ export default function Navbar() {
         <div className="hidden md:flex items-center gap-6">
           <Link href="/" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Home</Link>
           <Link href="/properties" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Properties</Link>
+          <Link href="/how-it-works" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>How It Works</Link>
           <Link href="/about" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>About Us</Link>
           <Link href="/contact" className="hover:opacity-80 transition" style={{ color: "var(--primary)" }}>Contact Us</Link>
           {owner ? (
@@ -120,6 +121,7 @@ export default function Navbar() {
         <div className="md:hidden border-t bg-white shadow-lg">
           <Link href="/" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Home</Link>
           <Link href="/properties" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Properties</Link>
+          <Link href="/how-it-works" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>How It Works</Link>
           <Link href="/about" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>About Us</Link>
           <Link href="/contact" onClick={closeAll} className="block px-6 py-3 hover:bg-gray-50 transition" style={{ color: "var(--primary)" }}>Contact Us</Link>
           {owner ? (

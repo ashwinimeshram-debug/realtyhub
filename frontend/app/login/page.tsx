@@ -5,13 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import API from "@/lib/api";
 import { useOwnerAuth } from "@/hooks/useOwnerAuth";
-import { useToast } from "@/components/Toast";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { refresh } = useOwnerAuth();
-  const { toast } = useToast();
 
   const next = searchParams.get("next") || "/my-account";
 
@@ -19,9 +17,6 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [unverified, setUnverified] = useState(false);
-  const [resending, setResending] = useState(false);
-  const [resentMsg, setResentMsg] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
@@ -50,34 +45,18 @@ function LoginForm() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setResentMsg("");
     try {
       const res = await API.post("/owner/login", form);
       await refresh();
       if (res.data.is_verified) {
         router.replace(next);
       } else {
-        setUnverified(true);
-        setError("");
+        router.replace("/verify-email");
       }
     } catch (err: any) {
       setError(err?.response?.data?.error || "Invalid credentials");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setResending(true);
-    setResentMsg("");
-    try {
-      const res = await API.post("/owner/resend-verification");
-      setResentMsg(res.data.message || "Verification email sent");
-      toast("Verification email sent", "success");
-    } catch (err: any) {
-      setError(err?.response?.data?.error || "Could not resend verification email");
-    } finally {
-      setResending(false);
     }
   };
 
@@ -91,21 +70,6 @@ function LoginForm() {
         <p className="text-sm text-gray-500 text-center mb-6">
           Sign in to post and manage your properties
         </p>
-
-        {unverified && (
-          <div className="mb-4 text-amber-700 text-sm bg-amber-50 border border-amber-200 p-3 rounded-lg text-center">
-            Please verify your email address to post properties.
-            <button
-              type="button"
-              onClick={handleResend}
-              disabled={resending}
-              className="mt-2 w-full text-sm font-medium text-amber-800 underline hover:no-underline disabled:opacity-60"
-            >
-              {resending ? "Sending..." : "Resend verification email"}
-            </button>
-            {resentMsg && <p className="mt-1 text-green-600">{resentMsg}</p>}
-          </div>
-        )}
 
         {error && (
           <div className="mb-4 text-red-500 text-sm text-center bg-red-50 p-3 rounded-lg">

@@ -21,6 +21,7 @@ def test_logout_revokes_token(client, app):
             name="Blocklist Owner",
             email=f"blocklist-{uuid.uuid4().hex[:8]}@example.com",
             mobile="9000000001", password="x",
+            is_active=True, is_verified=True,
         )
         db.session.add(owner)
         db.session.commit()

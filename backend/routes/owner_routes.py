@@ -61,28 +61,51 @@ def _hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def owner_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        payload = load_owner_payload()
-        if not payload:
-            return jsonify({"error": "Owner login required"}), 401
-        if not owner_csrf_ok(payload):
-            return jsonify({"error": "Missing CSRF token"}), 401
-        owner_id = owner_id_from_payload(payload)
-        owner = Owner.query.get(owner_id) if owner_id else None
-        if not owner or not owner.is_active:
-            return jsonify({"error": "Owner login required"}), 401
-        g.owner = owner
-        return fn(*args, **kwargs)
-    return wrapper
+def owner_required(fn=None, *, allow_unverified=False):
+    """Require a logged-in, active owner.
+
+    Unverified owners are blocked by default (with a machine-readable
+    ``code: email_unverified`` so the frontend can route them to the
+    verification screen). Routes a pending user legitimately needs —
+    check-auth, resend-verification, logout, delete-account — opt in with
+    ``allow_unverified=True``.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            payload = load_owner_payload()
+            if not payload:
+                return jsonify({"error": "Owner login required"}), 401
+            if not owner_csrf_ok(payload):
+                return jsonify({"error": "Missing CSRF token"}), 401
+            owner_id = owner_id_from_payload(payload)
+            owner = Owner.query.get(owner_id) if owner_id else None
+            if not owner or not owner.is_active:
+                return jsonify({"error": "Owner login required"}), 401
+            if not allow_unverified and not owner.is_verified:
+                return jsonify({
+                    "error": "Please verify your email address to access your dashboard.",
+                    "code": "email_unverified",
+                }), 403
+            g.owner = owner
+            return func(*args, **kwargs)
+        return wrapper
+
+    if fn is not None:
+        return decorator(fn)
+    return decorator
 
 
 def owner_verified(fn):
+    """Retained for backwards compatibility; ``owner_required`` now gates
+    verification by default, so this is a redundant no-op guard."""
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if not g.owner.is_verified:
-            return jsonify({"error": "Please verify your email before posting properties"}), 403
+            return jsonify({
+                "error": "Please verify your email address to access your dashboard.",
+                "code": "email_unverified",
+            }), 403
         return fn(*args, **kwargs)
     return wrapper
 
@@ -217,7 +240,7 @@ def verify_email(token):
 
 @owner_bp.route("/resend-verification", methods=["POST"])
 @limiter.limit("3/hour")
-@owner_required
+@owner_required(allow_unverified=True)
 def resend_verification():
     if g.owner.is_verified:
         return jsonify({"message": "Email already verified"}), 200
@@ -320,7 +343,7 @@ def reset_password(token):
 
 
 @owner_bp.route("/check-auth", methods=["GET"])
-@owner_required
+@owner_required(allow_unverified=True)
 def check_auth():
     owner = g.owner
     return jsonify({
@@ -1292,7 +1315,7 @@ def export_my_data():
 
 
 @owner_bp.route("/delete-account", methods=["POST"])
-@owner_required
+@owner_required(allow_unverified=True)
 def delete_my_account():
     """DPDP erasure: anonymize the owner and scrub their personal data, then deactivate.
 

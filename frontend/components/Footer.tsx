@@ -101,6 +101,7 @@ export default function Footer() {
           {/* Right — Legal Links */}
           <div className="flex gap-5 text-sm text-white/70 text-center md:text-right">
             <Link href="/about" className="hover:text-white transition">About Us</Link>
+            <Link href="/how-it-works" className="hover:text-white transition">How It Works</Link>
             <Link href="/contact" className="hover:text-white transition">Contact</Link>
             <Link href="/privacy-policy" className="hover:text-white transition">Privacy</Link>
             <Link href="/terms" className="hover:text-white transition">Terms</Link>

@@ -223,6 +223,7 @@ def test_owner_data_export_and_delete(client, app):
         owner = Owner(
             name="Export Owner", email=email,
             mobile="9000000099", password="x",
+            is_active=True, is_verified=True,
         )
         db.session.add(owner)
         db.session.commit()

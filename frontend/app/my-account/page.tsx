@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import API from "@/lib/api";
 import SmartImage from "@/components/SmartImage";
@@ -129,6 +130,7 @@ export default function MyAccountPage() {
   const { owner, loading: authLoading, logout } = useOwnerAuth();
   const { toast } = useToast();
   const { confirm } = useConfirm();
+  const router = useRouter();
 
   const [tab, setTab] = useState<"properties" | "leads" | "searches" | "reports">("properties");
   const [properties, setProperties] = useState<MyProperty[]>([]);
@@ -180,9 +182,13 @@ export default function MyAccountPage() {
 
   useEffect(() => {
     if (!owner) return;
+    if (!owner.is_verified) {
+      router.replace("/verify-email");
+      return;
+    }
     if (tab === "properties") loadProperties();
     if (tab === "searches") loadSearches();
-  }, [owner, tab, loadProperties, loadSearches]);
+  }, [owner, tab, loadProperties, loadSearches, router]);
 
   const handleClose = async (p: MyProperty) => {
     const ok = await confirm({
