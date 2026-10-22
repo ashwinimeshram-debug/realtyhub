@@ -88,11 +88,16 @@ def send_email_async(subject, recipients, html, block=False):
                             app.config.get("MAIL_SERVER"), app.config.get("MAIL_PORT"),
                             app.config.get("MAIL_USE_SSL"), app.config.get("MAIL_USE_TLS"),
                             ",".join(recipients))
+                from_addr = (opts.get("mail_sender") or opts.get("mail_username") or "").strip()
+                site_name = get_site_name()
+                sender = f"{site_name} <{from_addr}>" if from_addr and site_name else (from_addr or None)
                 msg = Message(
                     subject=subject,
                     recipients=recipients,
                     html=html,
-                    sender=opts.get("mail_sender") or opts.get("mail_username"),
+                    body=_html_to_text(html),
+                    sender=sender,
+                    reply_to=from_addr or None,
                 )
                 mail.send(msg)
                 logger.info("Email sent To=%s Subject=%s", ",".join(recipients), subject)
@@ -103,6 +108,26 @@ def send_email_async(subject, recipients, html, block=False):
         _send()
     else:
         threading.Thread(target=_send, daemon=True).start()
+
+
+def _html_to_text(html):
+    """Very small HTML -> plain-text conversion for the multipart/alternative part.
+
+    Gmail and other providers penalise HTML-only mail; including a text part
+    improves deliverability.
+    """
+    import re as _re
+    text = _re.sub(r"(?is)<(script|style).*?</\1>", "", html or "")
+    text = _re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = _re.sub(r"(?i)</(p|div|tr|h[1-6]|li)>", "\n", text)
+    text = _re.sub(r"(?i)<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", r"\2 (\1)", text)
+    text = _re.sub(r"(?s)<[^>]+>", "", text)
+    text = (text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&rarr;", "->")
+                .replace("&middot;", "-").replace("&copy;", "(c)")
+                .replace("&lt;", "<").replace("&gt;", ">"))
+    text = _re.sub(r"[ \t]+", " ", text)
+    text = _re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+    return text.strip()
 
 
 def get_site_name():
