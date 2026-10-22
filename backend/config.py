@@ -1,8 +1,64 @@
 import os
 import secrets
+import time
 from datetime import timedelta
 
 _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+
+
+def _build_connect_creator(url_string, attempts=5, delay=0.5):
+    """Return a DBAPI connection factory that retries transient failures.
+
+    Shared Postgres hosts (e.g. HostyCare) run one PostgreSQL instance for
+    every account on the server. When other tenants exhaust the server's
+    ``max_connections``, PostgreSQL refuses *new* connections immediately
+    ("remaining connection slots are reserved for non-replication superuser
+    connections") and psycopg2 raises without waiting.
+
+    A short retry loop turns that hard failure into a brief wait that
+    succeeds as soon as a slot is released. Returns ``None`` when the driver
+    or URL is not supported, in which case SQLAlchemy's normal connect path
+    is used.
+    """
+    try:
+        import psycopg2
+        from sqlalchemy.engine import make_url
+    except Exception:  # pragma: no cover - psycopg2 always present in prod
+        return None
+
+    try:
+        url = make_url(url_string)
+    except Exception:
+        return None
+
+    if not url.drivername.startswith("postgresql"):
+        return None
+
+    connect_args = {
+        "host": url.host,
+        "port": url.port or 5432,
+        "user": url.username,
+        "password": url.password,
+        "dbname": url.database,
+    }
+    # Preserve query-string options such as sslmode.
+    for key, value in (url.query or {}).items():
+        if isinstance(value, (list, tuple)):
+            value = value[-1] if value else None
+        if value is not None:
+            connect_args[key] = value
+
+    def creator():
+        last_exc = None
+        for attempt in range(attempts):
+            try:
+                return psycopg2.connect(**connect_args)
+            except Exception as exc:  # noqa: BLE001 - retried below
+                last_exc = exc
+                time.sleep(delay * (attempt + 1))
+        raise last_exc
+
+    return creator
 
 
 def _load_env_file():
@@ -64,7 +120,8 @@ class Config:
         "postgresql+psycopg2://postgres:postgres@localhost:5432/realtyhub"
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
+
+    _engine_options = {
         "pool_recycle": 1800,
         "pool_pre_ping": True,
         # Passenger runs a small number of workers on shared cPanel; keep the
@@ -76,6 +133,18 @@ class Config:
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "0")),
         "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "20")),
     }
+
+    # Retry transient "no connection slots available" failures instead of
+    # failing the request instantly.
+    _creator = _build_connect_creator(
+        SQLALCHEMY_DATABASE_URI,
+        attempts=int(os.getenv("DB_CONNECT_RETRIES", "5")),
+        delay=float(os.getenv("DB_CONNECT_RETRY_DELAY", "0.5")),
+    )
+    if _creator is not None:
+        _engine_options["creator"] = _creator
+
+    SQLALCHEMY_ENGINE_OPTIONS = _engine_options
 
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
