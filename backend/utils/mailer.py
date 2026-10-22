@@ -62,52 +62,61 @@ def _configure_mail(app, opts):
         mail.init_app(app)
 
 
-def send_email_async(subject, recipients, html, block=False):
-    """Fire-and-forget email. Never blocks or fails the calling request.
+def _deliver(subject, recipients, html):
+    """Configure Flask-Mail from the DB and hand the message to the SMTP server."""
+    try:
+        opts = get_mail_settings()
+        enabled = opts.get("mail_enabled", "true").lower() in ("1", "true", "yes")
+        if not enabled:
+            logger.warning("[MAIL disabled] To=%s Subject=%s (enable in Admin Settings -> Email)",
+                           ",".join(recipients), subject)
+            return
+        _configure_mail(current_app, opts)
+        logger.info("Sending email via %s:%s ssl=%s tls=%s To=%s",
+                    current_app.config.get("MAIL_SERVER"), current_app.config.get("MAIL_PORT"),
+                    current_app.config.get("MAIL_USE_SSL"), current_app.config.get("MAIL_USE_TLS"),
+                    ",".join(recipients))
+        from_addr = (opts.get("mail_sender") or opts.get("mail_username") or "").strip()
+        site_name = get_site_name()
+        sender = f"{site_name} <{from_addr}>" if from_addr and site_name else (from_addr or None)
+        msg = Message(
+            subject=subject,
+            recipients=recipients,
+            html=html,
+            body=_html_to_text(html),
+            sender=sender,
+            reply_to=from_addr or None,
+        )
+        mail.send(msg)
+        logger.info("Email sent To=%s Subject=%s", ",".join(recipients), subject)
+    except Exception as e:
+        logger.error("Email failed To=%s Subject=%s Error=%s", ",".join(recipients), subject, e)
 
-    Reads SMTP settings from the DB settings table; when mail_enabled is
-    false (default) the email is only logged. Pass block=True (tests) to
-    send synchronously instead of on a background thread.
+
+def send_email_async(subject, recipients, html, block=True):
+    """Send an email using the DB-backed SMTP settings.
+
+    Defaults to a synchronous send so the message is handed to the SMTP server
+    before the request returns — critical on shared Passenger/LiteSpeed workers
+    that may be recycled immediately after the HTTP response, which would kill
+    a fire-and-forget background thread mid-send. Pass block=False to opt back
+    into a best-effort background thread.
     """
     recipients = [r for r in (recipients or []) if r]
     if not recipients:
         return
-    app = current_app._get_current_object()
 
-    def _send():
-        with app.app_context():
-            try:
-                opts = get_mail_settings()
-                enabled = opts.get("mail_enabled", "true").lower() in ("1", "true", "yes")
-                if not enabled:
-                    logger.warning("[MAIL disabled] To=%s Subject=%s (enable in Admin Settings -> Email)",
-                                   ",".join(recipients), subject)
-                    return
-                _configure_mail(app, opts)
-                logger.info("Sending email via %s:%s ssl=%s tls=%s To=%s",
-                            app.config.get("MAIL_SERVER"), app.config.get("MAIL_PORT"),
-                            app.config.get("MAIL_USE_SSL"), app.config.get("MAIL_USE_TLS"),
-                            ",".join(recipients))
-                from_addr = (opts.get("mail_sender") or opts.get("mail_username") or "").strip()
-                site_name = get_site_name()
-                sender = f"{site_name} <{from_addr}>" if from_addr and site_name else (from_addr or None)
-                msg = Message(
-                    subject=subject,
-                    recipients=recipients,
-                    html=html,
-                    body=_html_to_text(html),
-                    sender=sender,
-                    reply_to=from_addr or None,
-                )
-                mail.send(msg)
-                logger.info("Email sent To=%s Subject=%s", ",".join(recipients), subject)
-            except Exception as e:
-                logger.error("Email failed To=%s Subject=%s Error=%s", ",".join(recipients), subject, e)
+    if not block:
+        app = current_app._get_current_object()
 
-    if block:
-        _send()
-    else:
-        threading.Thread(target=_send, daemon=True).start()
+        def _worker():
+            with app.app_context():
+                _deliver(subject, recipients, html)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return
+
+    _deliver(subject, recipients, html)
 
 
 def _html_to_text(html):

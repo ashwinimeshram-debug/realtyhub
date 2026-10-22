@@ -90,3 +90,40 @@ def test_send_email_skipped_when_disabled(app, monkeypatch):
         send_email_async("Test Subject", ["user@example.com"], "<p>hi</p>", block=True)
 
     assert called["n"] == 0
+
+
+def test_owner_register_sends_verification_email(app, monkeypatch):
+    """End-to-end: POST /api/owner/register must dispatch a verification email."""
+    import uuid
+    from extensions import db
+    from models.models import Owner
+
+    _set(app, "mail_enabled", "true")
+    _set(app, "mail_server", "mail.plotandroof.com")
+    _set(app, "mail_port", "465")
+    _set(app, "mail_use_ssl", "true")
+    _set(app, "mail_username", "info@plotandroof.com")
+    _set(app, "mail_password", "secret")
+    _set(app, "mail_sender", "info@plotandroof.com")
+
+    sent = {}
+    monkeypatch.setattr(mailer.mail, "send",
+                        lambda msg: sent.update(subject=msg.subject, recipients=list(msg.recipients),
+                                                has_link="verify-email/" in (msg.html or "")))
+
+    email = f"reg-{uuid.uuid4().hex[:8]}@example.com"
+    payload = {"name": "Reg Tester", "email": email, "mobile": "9876500123",
+               "password": "Secret123!", "consent": True}
+    client = app.test_client()
+    resp = client.post("/api/owner/register", json=payload)
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+
+    assert sent.get("recipients") == [email], sent
+    assert sent.get("has_link") is True, sent
+
+    with app.app_context():
+        owner = Owner.query.filter_by(email=email).first()
+        if owner:
+            db.session.delete(owner)
+            db.session.commit()
+
