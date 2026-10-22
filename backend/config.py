@@ -104,12 +104,13 @@ class Config:
     MAIL_ENABLED = os.getenv("MAIL_ENABLED", "false").lower() in ("1", "true", "yes")
 
     RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "200 per minute")
-    # Shared storage so limits stay accurate across Passenger workers. The
-    # Postgres-backed "db://" scheme is the safe default in production; dev
-    # falls back to per-process memory.
-    RATELIMIT_STORAGE_URI = os.getenv(
-        "RATELIMIT_STORAGE_URI", "db://" if _is_production else "memory://"
-    )
+    # Rate-limit counters default to in-process memory. A shared Postgres
+    # backend ("db://") is more accurate across workers, but on shared cPanel
+    # hosting every counter hit draws a DB connection from a very small pool
+    # and quickly exhausts the limited Postgres connection slots. Opt into the
+    # DB backend explicitly with RATELIMIT_STORAGE_URI=db:// when the host
+    # allows enough connections (e.g. a Redis/Postgres with headroom).
+    RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
 
     # Shared secret for external cron/scheduler callbacks (X-Cron-Key header).
     CRON_KEY = os.getenv("CRON_KEY", "")

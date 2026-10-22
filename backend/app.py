@@ -82,6 +82,14 @@ def create_app():
     _register_request_logging(app)
     _register_security_headers(app)
 
+    @app.teardown_appcontext
+    def _release_db_session(exception=None):
+        # Always return the connection to the pool at the end of each request.
+        # Shared cPanel Postgres grants very few connection slots; a leaked
+        # session per LSAPI child quickly exhausts them ("remaining connection
+        # slots are reserved...").
+        db.session.remove()
+
     @app.route("/")
     def home():
         from utils.mailer import get_site_name
