@@ -11,17 +11,18 @@ logger = logging.getLogger("realtyhub.mailer")
 
 _MAIL_KEYS = (
     "mail_enabled", "mail_server", "mail_port", "mail_username",
-    "mail_password", "mail_sender", "mail_use_tls",
+    "mail_password", "mail_sender", "mail_use_tls", "mail_use_ssl",
 )
 
 _MAIL_DEFAULTS = {
-    "mail_enabled": "false",
-    "mail_server": "smtp.gmail.com",
-    "mail_port": "587",
+    "mail_enabled": "true",
+    "mail_server": "mail.plotandroof.com",
+    "mail_port": "465",
     "mail_username": "",
     "mail_password": "",
     "mail_sender": "",
-    "mail_use_tls": "true",
+    "mail_use_tls": "false",
+    "mail_use_ssl": "true",
 }
 
 _config_lock = threading.Lock()
@@ -40,28 +41,33 @@ def get_mail_settings():
 
 def _configure_mail(app, opts):
     """Re-point Flask-Mail at the DB-backed SMTP settings."""
-    use_tls = opts.get("mail_use_tls", "true").lower() in ("1", "true", "yes")
+    use_ssl = opts.get("mail_use_ssl", "true").lower() in ("1", "true", "yes")
+    use_tls = opts.get("mail_use_tls", "false").lower() in ("1", "true", "yes")
+    if use_ssl:
+        use_tls = False
+    default_port = 465 if use_ssl else (587 if use_tls else 25)
     try:
-        port = int((opts.get("mail_port") or "").strip() or (587 if use_tls else 465))
+        port = int((opts.get("mail_port") or "").strip() or default_port)
     except (TypeError, ValueError):
-        port = 587 if use_tls else 465
+        port = default_port
     username = opts.get("mail_username") or ""
     with _config_lock:
-        app.config["MAIL_SERVER"] = opts.get("mail_server") or "smtp.gmail.com"
+        app.config["MAIL_SERVER"] = opts.get("mail_server") or "mail.plotandroof.com"
         app.config["MAIL_PORT"] = port
         app.config["MAIL_USE_TLS"] = use_tls
-        app.config["MAIL_USE_SSL"] = False
+        app.config["MAIL_USE_SSL"] = use_ssl
         app.config["MAIL_USERNAME"] = username
         app.config["MAIL_PASSWORD"] = opts.get("mail_password") or ""
         app.config["MAIL_SENDER"] = opts.get("mail_sender") or username
         mail.init_app(app)
 
 
-def send_email_async(subject, recipients, html):
+def send_email_async(subject, recipients, html, block=False):
     """Fire-and-forget email. Never blocks or fails the calling request.
 
     Reads SMTP settings from the DB settings table; when mail_enabled is
-    false (default) the email is only logged.
+    false (default) the email is only logged. Pass block=True (tests) to
+    send synchronously instead of on a background thread.
     """
     recipients = [r for r in (recipients or []) if r]
     if not recipients:
@@ -72,11 +78,16 @@ def send_email_async(subject, recipients, html):
         with app.app_context():
             try:
                 opts = get_mail_settings()
-                enabled = opts.get("mail_enabled", "false").lower() in ("1", "true", "yes")
+                enabled = opts.get("mail_enabled", "true").lower() in ("1", "true", "yes")
                 if not enabled:
-                    logger.info("[MAIL disabled] To=%s Subject=%s", ",".join(recipients), subject)
+                    logger.warning("[MAIL disabled] To=%s Subject=%s (enable in Admin Settings -> Email)",
+                                   ",".join(recipients), subject)
                     return
                 _configure_mail(app, opts)
+                logger.info("Sending email via %s:%s ssl=%s tls=%s To=%s",
+                            app.config.get("MAIL_SERVER"), app.config.get("MAIL_PORT"),
+                            app.config.get("MAIL_USE_SSL"), app.config.get("MAIL_USE_TLS"),
+                            ",".join(recipients))
                 msg = Message(
                     subject=subject,
                     recipients=recipients,
@@ -88,7 +99,10 @@ def send_email_async(subject, recipients, html):
             except Exception as e:
                 logger.error("Email failed To=%s Subject=%s Error=%s", ",".join(recipients), subject, e)
 
-    threading.Thread(target=_send, daemon=True).start()
+    if block:
+        _send()
+    else:
+        threading.Thread(target=_send, daemon=True).start()
 
 
 def get_site_name():
@@ -388,3 +402,15 @@ def password_reset_email(reset_link):
         _para("If you did not request this, you can safely ignore this email."),
     ]
     return _shell("Password Reset", "Reset your password", body)
+
+
+def password_reset_request_email(identifier, requester_name="", note=""):
+    body = [
+        _para("A user has requested a password reset for an admin account:"),
+        _row("Identifier", identifier),
+        _row("Name", requester_name or "-"),
+    ]
+    if note:
+        body.append(_para(note))
+    body.append(_btn("Open Reset Requests", frontend_url("admin"))) 
+    return _shell("Password Reset Request", "New admin password reset request", body)

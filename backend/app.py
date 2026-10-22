@@ -570,13 +570,14 @@ def _seed_mail_settings():
     from models.setting_model import Setting
 
     defaults = {
-        "mail_enabled": "false",
-        "mail_server": "smtp.gmail.com",
-        "mail_port": "587",
-        "mail_username": os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com"),
+        "mail_enabled": "true",
+        "mail_server": "mail.plotandroof.com",
+        "mail_port": "465",
+        "mail_username": os.getenv("MAIL_USERNAME", "info@plotandroof.com"),
         "mail_password": os.getenv("MAIL_PASSWORD", ""),
-        "mail_sender": os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com"),
-        "mail_use_tls": "true",
+        "mail_sender": os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@plotandroof.com"),
+        "mail_use_tls": "false",
+        "mail_use_ssl": "true",
     }
     for key, value in defaults.items():
         if not Setting.query.filter_by(skey=key).first():

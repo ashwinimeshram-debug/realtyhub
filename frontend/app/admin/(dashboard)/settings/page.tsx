@@ -459,8 +459,9 @@ export default function SettingsPage() {
       <div className={`bg-white rounded-xl shadow p-4 md:p-6 mb-4 md:mb-6 ${show("messaging") ? "" : "hidden"}`}>
         <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Email (SMTP)</h2>
         <p className="text-xs md:text-sm text-gray-500 mb-3 md:mb-4">
-          Used for sending password resets and owner/visitor notifications. For Gmail, use an
-          <span className="font-medium text-gray-700"> App Password</span> (enable 2-Step Verification first).
+          Used for sending verification links, password resets and owner/visitor notifications.
+          For your hosting mailbox use SSL on port 465 (e.g. <span className="font-medium text-gray-700">mail.plotandroof.com</span>);
+          for Gmail use STARTTLS on port 587 with an <span className="font-medium text-gray-700">App Password</span>.
         </p>
 
         <label className="flex items-center gap-3 cursor-pointer mb-4">
@@ -546,7 +547,25 @@ export default function SettingsPage() {
                 }`} />
               </button>
               <span className="text-sm text-gray-700">
-                {settings.mail_use_tls !== "false" ? "Use STARTTLS (port 587)" : "No TLS"}
+                {settings.mail_use_tls !== "false" ? "Use STARTTLS (port 587)" : "No STARTTLS"}
+              </span>
+            </label>
+          </div>
+          <div className="flex items-end pb-1">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <button
+                type="button"
+                onClick={() => handleChange("mail_use_ssl", settings.mail_use_ssl === "true" ? "false" : "true")}
+                className={`w-10 h-5 rounded-full flex items-center p-0.5 transition shrink-0 ${
+                  settings.mail_use_ssl === "true" ? "bg-blue-600" : "bg-gray-300"
+                }`}
+              >
+                <div className={`bg-white w-4 h-4 rounded-full shadow transform transition ${
+                  settings.mail_use_ssl === "true" ? "translate-x-5" : ""
+                }`} />
+              </button>
+              <span className="text-sm text-gray-700">
+                {settings.mail_use_ssl === "true" ? "Use SSL (port 465)" : "No SSL"}
               </span>
             </label>
           </div>

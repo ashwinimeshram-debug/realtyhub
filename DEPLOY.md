@@ -166,15 +166,92 @@ cPanel → **Cron Jobs**:
 
 Verify with `GET https://api.plotandroof.com/api/cron/health`.
 
-## 8. SSL + routing
+## 8. Email / SMTP (verification + password reset)
+
+Email is required for owner sign-up (verification link) and password resets. The
+**live mailer reads its config from the `settings` table in the DB**, not from
+`.env` — the `.env` `MAIL_*` values only seed that table on first boot. Change
+settings in **Admin → Settings → Email (SMTP)**.
+
+For the hosting mailbox (cPanel → Email Accounts):
+
+| Setting | Value |
+|---|---|
+| SMTP Server | `mail.plotandroof.com` |
+| Port | `465` |
+| SSL | **On** (STARTTLS off) |
+| Username | `info@plotandroof.com` |
+| Password | the mailbox password (store only in the DB) |
+| Sender (From) | `info@plotandroof.com` |
+
+After deploying, migrate any existing placeholder rows to the new defaults:
+
+```bash
+cd ~/realtyhub/backend
+source /home/sumatien/virtualenv/realtyhub/backend/3.11/bin/activate
+python scripts/migrate_mail_settings.py --username info@plotandroof.com \
+    --sender info@plotandroof.com --password '<mailbox-password>'
+```
+
+The script only rewrites rows still holding the old Gmail placeholders, so saved
+credentials are never clobbered. Verify by registering a test owner and
+confirming the verification email arrives; the Passenger log shows
+`Sending email via mail.plotandroof.com:465 ssl=True` (or
+`[MAIL disabled]` if the toggle is off).
+
+## 9. SSL + routing
 
 - cPanel → **SSL/TLS Status** → Run AutoSSL for `plotandroof.com` and `api.plotandroof.com`.
 - Cloudflare: set SSL mode to Full (strict) once AutoSSL is issued.
 - Ensure the `api` subdomain is routed to the Python app, the main domain to Node.
 
-## 9. Post-deploy smoke test
+## 10. Updating the live site
+
+Everyday change → deploy loop. Push locally, pull on the server, rebuild only
+what changed.
+
+```bash
+# Local
+git add -A && git commit -m "..." && git push origin main
+```
+
+```bash
+# Server
+cd ~/realtyhub && git pull origin main
+```
+
+Then apply the parts that changed:
+
+**Backend changed** (`backend/**`):
+```bash
+source /home/sumatien/virtualenv/realtyhub/backend/3.11/bin/activate
+pip install -r /home/sumatien/realtyhub/backend/requirements.txt   # only if deps changed
+cd /home/sumatien/realtyhub/backend && alembic upgrade head        # only if migrations
+touch /home/sumatien/realtyhub/backend/tmp/restart.txt             # restart Passenger
+```
+
+**Frontend changed** (`frontend/**`) — rebuild is **required**; Next.js bakes
+env values and static output at build time:
+```bash
+cd ~/realtyhub/frontend
+source /home/sumatien/nodevenv/realtyhub/frontend/22/bin/activate
+npm ci --include=dev
+NEXT_BUILD_CPUS=1 NEXT_TELEMETRY_DISABLED=1 npm run build
+```
+Then restart the Node app from cPanel → **Setup Node.js App**.
+
+### Deploy gotchas
+
+- `.env` files are **gitignored** — `git pull` never overwrites them.
+- cPanel may overwrite `backend/passenger_wsgi.py`. If the API fails after a
+  deploy, restore it: `from app import create_app` / `application = create_app()`.
+- Frontend env changes (`NEXT_PUBLIC_*`) need a full rebuild, not just a restart.
+- Use `NEXT_BUILD_CPUS=1` to keep the build inside the shared CPU/memory limits.
+
+## 11. Post-deploy smoke test
 
 - `https://api.plotandroof.com/api/settings` returns JSON.
 - `https://plotandroof.com` loads, images render.
 - Admin login, create a listing, owner checkout, lead submit.
+- Owner registration delivers the verification email (check `info@plotandroof.com`).
 - Restore repo visibility to private on GitHub if it was made public.

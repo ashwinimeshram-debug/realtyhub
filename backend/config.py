@@ -165,13 +165,14 @@ class Config:
     ]
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-    MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
-    MAIL_PORT = int(os.getenv("MAIL_PORT", "587"))
-    MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
-    MAIL_USERNAME = os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com")
-    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "your_app_password")
-    MAIL_SENDER = os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@nagpurrealtyhub.com")
-    MAIL_ENABLED = os.getenv("MAIL_ENABLED", "false").lower() in ("1", "true", "yes")
+    MAIL_SERVER = os.getenv("MAIL_SERVER", "mail.plotandroof.com")
+    MAIL_PORT = int(os.getenv("MAIL_PORT", "465"))
+    MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "false").lower() in ("1", "true", "yes")
+    MAIL_USE_SSL = os.getenv("MAIL_USE_SSL", "true").lower() in ("1", "true", "yes")
+    MAIL_USERNAME = os.getenv("MAIL_USERNAME", "info@plotandroof.com")
+    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "")
+    MAIL_SENDER = os.getenv("MAIL_SENDER") or os.getenv("MAIL_USERNAME", "info@plotandroof.com")
+    MAIL_ENABLED = os.getenv("MAIL_ENABLED", "true").lower() in ("1", "true", "yes")
 
     RATELIMIT_DEFAULT = os.getenv("RATELIMIT_DEFAULT", "200 per minute")
     # Rate-limit counters default to in-process memory. A shared Postgres

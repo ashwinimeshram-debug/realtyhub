@@ -23,7 +23,7 @@ from utils.supabase_storage import delete_file
 from utils.images import process_image_upload
 from utils.leads_scope import is_closed_lead
 from utils.lead_transfer import record_lead_transfer
-from utils.mailer import get_site_name, password_reset_email, send_email_async, submission_confirmed_email, submission_rejected_email
+from utils.mailer import get_site_name, password_reset_email, password_reset_request_email, send_email_async, submission_confirmed_email, submission_rejected_email
 from utils.permissions import has_permission, is_admin, current_admin, admin_permissions, PERMISSION_CATALOG, require_permission
 from utils.leads_scope import internal_lead_condition
 from routes.settings_routes import is_setting_enabled
@@ -1727,6 +1727,15 @@ def create_password_reset_request():
     )
     db.session.add(req)
     db.session.commit()
+
+    recipients = [a.email for a in Admin.query.filter_by(role="admin", is_active=True).all() if a.email]
+    if recipients:
+        send_email_async(
+            f"Password Reset Request - {get_site_name()}",
+            recipients,
+            password_reset_request_email(identifier, (data.get("name") or "").strip()),
+        )
+
     return jsonify({"message": "Your request has been sent to the admin. You will be contacted shortly."}), 201
 
 

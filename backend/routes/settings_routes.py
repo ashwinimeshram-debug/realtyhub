@@ -75,7 +75,7 @@ def admin_get_settings():
 
 MAIL_SETTING_KEYS = {
     "mail_enabled", "mail_server", "mail_port", "mail_username",
-    "mail_password", "mail_sender", "mail_use_tls",
+    "mail_password", "mail_sender", "mail_use_tls", "mail_use_ssl",
 }
 
 WHATSAPP_SETTING_KEYS = {
