@@ -50,15 +50,15 @@ def _configure_mail(app, opts):
         port = int((opts.get("mail_port") or "").strip() or default_port)
     except (TypeError, ValueError):
         port = default_port
-    username = opts.get("mail_username") or ""
+    username = (opts.get("mail_username") or "").strip()
     with _config_lock:
-        app.config["MAIL_SERVER"] = opts.get("mail_server") or "mail.plotandroof.com"
+        app.config["MAIL_SERVER"] = (opts.get("mail_server") or "mail.plotandroof.com").strip()
         app.config["MAIL_PORT"] = port
         app.config["MAIL_USE_TLS"] = use_tls
         app.config["MAIL_USE_SSL"] = use_ssl
         app.config["MAIL_USERNAME"] = username
         app.config["MAIL_PASSWORD"] = opts.get("mail_password") or ""
-        app.config["MAIL_SENDER"] = opts.get("mail_sender") or username
+        app.config["MAIL_SENDER"] = (opts.get("mail_sender") or username).strip()
         mail.init_app(app)
 
 
