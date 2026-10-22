@@ -74,8 +74,21 @@ def create_app():
                 db.create_all()
             else:
                 _create_all_without_trgm()
-        _seed_rbac()
-        _seed_defaults()
+        # Seeding talks to the database. On shared hosting the database can be
+        # briefly unreachable (connection slots exhausted by other tenants), and
+        # a hard failure here would prevent the WSGI app from booting at all
+        # (every request would return 500). Treat seeding as best effort: the
+        # schema is owned by Alembic and the seed data is idempotent, so it can
+        # be applied on a later request/restart.
+        for _seed_step in (_seed_rbac, _seed_defaults):
+            try:
+                _seed_step()
+            except Exception as exc:  # pragma: no cover - depends on DB state
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+                logger.warning("Startup seed step %s skipped: %s", _seed_step.__name__, exc)
 
     _register_blueprints(app)
     _register_error_handlers(app)
