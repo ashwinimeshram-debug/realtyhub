@@ -70,10 +70,11 @@ class Config:
         # Passenger runs a small number of workers on shared cPanel; keep the
         # pool very modest so total connections stay within the shared Postgres
         # limit (hosts often cap at a handful of slots, some reserved for
-        # superusers). 1+1 keeps a permanent connection plus one burst.
+        # superusers). 2+0 keeps two connections per worker and never
+        # overflows, so the worst case is bounded by the worker count.
         "pool_size": int(os.getenv("DB_POOL_SIZE", "2")),
-        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "1")),
-        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "0")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "20")),
     }
 
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")

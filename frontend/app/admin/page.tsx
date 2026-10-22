@@ -35,7 +35,15 @@ export default function AdminLoginPage() {
       await API.post("/admin/login", form);
       router.replace("/admin/dashboard");
     } catch (err: any) {
-      setError(err?.response?.data?.error || "Invalid credentials");
+      const status = err?.response?.status;
+      if (status === 429) {
+        setError("Too many attempts. Please wait a minute and try again.");
+      } else if (status === undefined || status >= 500) {
+        // Network failure / server error: not a credential problem.
+        setError("Server is temporarily unavailable. Please try again.");
+      } else {
+        setError(err?.response?.data?.error || "Invalid credentials");
+      }
     } finally {
       setLoading(false);
     }

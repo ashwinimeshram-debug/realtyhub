@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import API, { setCsrfToken } from "@/lib/api";
+import API, { setCsrfToken, withRetry, isTransientError } from "@/lib/api";
 import AdminTopbar from "@/components/admin/AdminTopbar";
 import Sidebar from "@/components/admin/Sidebar";
 import { AuthProvider } from "@/hooks/useAuth";
@@ -28,6 +28,8 @@ export default function AdminLayout({
   const [timeoutMin, setTimeoutMin] = useState(DEFAULT_TIMEOUT_MIN);
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const [transientError, setTransientError] = useState(false);
 
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,13 +51,31 @@ export default function AdminLayout({
     setAuthorized(false);
     setLoading(true);
     setAuthError("");
+    setTransientError(false);
 
     const init = async () => {
       try {
-        const [authRes, settingsRes] = await Promise.all([
-          API.get("/admin/check-auth"),
-          API.get("/admin/settings").catch(() => ({ data: {} })),
-        ]);
+        try {
+          // Retry transient (5xx / network) failures so shared-host DB
+          // contention does not spuriously log the admin out.
+          await withRetry(() => API.get("/admin/check-auth"));
+        } catch (err: any) {
+          if (isTransientError(err)) {
+            // Still failing after retries: the backend is temporarily
+            // unavailable. Do NOT clear the session or redirect; surface a
+            // retryable message instead of "Session expired".
+            setAuthError("Server is temporarily unavailable. Please retry.");
+            setTransientError(true);
+            setLoading(false);
+            return;
+          }
+          throw err;
+        }
+
+        const settingsRes = await API.get("/admin/settings").catch(() => ({
+          data: {} as Record<string, string>,
+        }));
+
         setAuthorized(true);
 
         const mins = parseInt(settingsRes.data.session_timeout_minutes);
@@ -63,6 +83,7 @@ export default function AdminLayout({
           setTimeoutMin(mins);
         }
       } catch (err: any) {
+        // Reached only for genuine auth failures (401 / 403 / disabled).
         const msg = err?.response?.data?.error || "";
         setAuthError(msg === "Account disabled" ? "Account disabled. Contact your administrator." : "Session expired.");
         await API.post("/admin/logout").catch(() => {});
@@ -74,7 +95,7 @@ export default function AdminLayout({
     };
 
     init();
-  }, [isLoginPage, router]);
+  }, [isLoginPage, router, retryCount]);
 
   useEffect(() => {
     if (isLoginPage || !authorized) return;
@@ -165,7 +186,20 @@ export default function AdminLayout({
             </svg>
           </div>
           <h2 className="text-lg font-semibold text-gray-800 mb-2">{authError}</h2>
-          <p className="text-sm text-gray-500">Redirecting to login...</p>
+          {transientError ? (
+            <>
+              <p className="text-sm text-gray-500 mb-4">Your session is still active.</p>
+              <button
+                type="button"
+                onClick={() => setRetryCount((c) => c + 1)}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">Redirecting to login...</p>
+          )}
         </div>
       </div>
     );

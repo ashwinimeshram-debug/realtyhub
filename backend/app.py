@@ -198,7 +198,6 @@ def _register_error_handlers(app):
     @app.errorhandler(400)
     def bad_request(e):
         return jsonify({"error": "Bad request"}), 400
-
     @app.errorhandler(404)
     def not_found(e):
         return jsonify({"error": "Not found"}), 404
@@ -230,6 +229,36 @@ def _register_error_handlers(app):
         except Exception:
             pass
         return jsonify({"error": "Internal server error"}), 500
+
+    @app.errorhandler(503)
+    def service_unavailable(e):
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return jsonify({"error": "Service temporarily unavailable"}), 503, {"Retry-After": "2"}
+
+    try:
+        from sqlalchemy.exc import OperationalError as _SAOperationalError
+
+        @app.errorhandler(_SAOperationalError)
+        def db_unavailable(e):
+            # The shared Postgres host can refuse connections when other
+            # tenants exhaust the server's slots. That is a temporary
+            # condition, not a broken app: answer 503 so callers can retry
+            # instead of tearing down the session.
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            logger.warning("Database temporarily unavailable: %s", e)
+            return (
+                jsonify({"error": "Service temporarily unavailable"}),
+                503,
+                {"Retry-After": "2"},
+            )
+    except Exception:  # pragma: no cover - sqlalchemy always present
+        pass
 
 
 def _register_security_headers(app):

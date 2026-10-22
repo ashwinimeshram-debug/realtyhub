@@ -34,7 +34,43 @@ export function getOwnerCsrfToken(): string | null {
 const API = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
+  timeout: 20000,
 });
+
+/**
+ * True for errors that are transient infrastructure failures (5xx, network
+ * drops, timeouts) rather than real auth/permission rejections. Shared hosts
+ * can throw these intermittently under DB connection contention; treating them
+ * as "session expired" logs users out spuriously.
+ */
+export function isTransientError(error: any): boolean {
+  if (!error || error.code === "ERR_CANCELED") return false;
+  const status = error.response?.status;
+  if (status === undefined) return true; // network error / timeout
+  return status >= 500;
+}
+
+/**
+ * Retry an async request a few times with backoff, but only for transient
+ * (5xx / network) failures. Real 4xx responses are returned immediately.
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  attempts = 3,
+  delayMs = 600
+): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientError(err) || i === attempts - 1) break;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
 
 API.interceptors.request.use((config) => {
   if (
