@@ -13,21 +13,36 @@ const SERVER_API_BASE_URL = (() => {
 })();
 
 export async function fetchJson(path: string, revalidate: number = REVALIDATE) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
-  try {
-    const res = await fetch(`${SERVER_API_BASE_URL}${path}`, {
-      signal: controller.signal,
-      next: { revalidate },
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+  // Shared hosts can briefly refuse DB connections (503) during SSR. Retry a
+  // couple of times so a transient saturation does not render an empty page.
+  const MAX_ATTEMPTS = 3;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      const res = await fetch(`${SERVER_API_BASE_URL}${path}`, {
+        signal: controller.signal,
+        next: { revalidate },
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      // Only 5xx (temporary upstream failure) is worth retrying.
+      if (res.status < 500 || attempt === MAX_ATTEMPTS - 1) {
+        return null;
+      }
+    } catch {
+      if (attempt === MAX_ATTEMPTS - 1) {
+        return null;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
   }
+  return null;
 }
 
 export const getSettings = cache(async (): Promise<Record<string, string>> => {
