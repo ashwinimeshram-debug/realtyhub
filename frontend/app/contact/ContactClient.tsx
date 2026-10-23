@@ -153,7 +153,7 @@ export default function ContactClient({ sections }: { sections: Section[] }) {
           ),
         }
       : null,
-  ].filter(Boolean) as Array<{ title: string; value: string; href: string | null; icon: JSX.Element }>;
+  ].filter(Boolean) as Array<{ title: string; value: string; href: string | null; icon: React.ReactNode }>;
 
   return (
     <div className="bg-white">
