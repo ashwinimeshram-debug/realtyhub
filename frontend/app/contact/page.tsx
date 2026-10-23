@@ -10,7 +10,12 @@ export const metadata: Metadata = {
   openGraph: { title: "Contact Us", url: `${SITE_URL}/contact`, type: "website" },
 };
 
-const contactSections = [
+const contactSections: Array<{
+  id: string;
+  label: string;
+  content: string;
+  type?: "section" | "description";
+}> = [
   { id: "c1", label: "Hero Title", content: "Get In Touch" },
   {
     id: "c2",
