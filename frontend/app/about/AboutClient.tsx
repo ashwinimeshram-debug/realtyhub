@@ -112,16 +112,17 @@ export default function AboutClient({
             About {siteName}
           </div>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-[var(--text-dark)]">
-            {welcome?.content?.split("\n")[0] || "Your Trusted Real Estate Platform"}
+            {welcome?.content?.split("\n")[0] || `About ${siteName}`}
           </h1>
           {welcome && (
             <p className="mt-4 max-w-3xl mx-auto text-base md:text-lg leading-relaxed text-[var(--text-muted)]">
-              {welcome.content.split("\n").slice(1).join(" ") || welcome.content}
-            </p>
-          )}
-          {aboutUs && (
-            <p className="mt-6 max-w-4xl mx-auto text-sm md:text-base leading-relaxed text-[var(--text-muted)] whitespace-pre-line">
-              {aboutUs.content}
+              {welcome.content.includes("\n")
+                ? welcome.content
+                    .split("\n")
+                    .slice(1)
+                    .join(" ")
+                    .trim()
+                : ""}
             </p>
           )}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
