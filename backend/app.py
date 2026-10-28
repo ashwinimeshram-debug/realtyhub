@@ -90,6 +90,14 @@ def create_app():
                     pass
                 logger.warning("Startup seed step %s skipped: %s", _seed_step.__name__, exc)
 
+        # LSAPI/Passenger import this module once and then fork worker
+        # children. Pooled connections opened above would be inherited by
+        # every child and share one Postgres socket, interleaving results
+        # (NoSuchColumnError, wrong rows). Drop them so each child connects
+        # on its own.
+        db.session.remove()
+        db.engine.dispose()
+
     _register_blueprints(app)
     _register_error_handlers(app)
     _register_request_logging(app)
