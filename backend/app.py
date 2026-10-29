@@ -90,6 +90,10 @@ def create_app():
                     pass
                 logger.warning("Startup seed step %s skipped: %s", _seed_step.__name__, exc)
 
+        db.session.remove()  # avoid leaking connections to the pool on app boot
+        db.engine.dispose()  # avoid leaking connections to the pool on app boot
+                
+
     _register_blueprints(app)
     _register_error_handlers(app)
     _register_request_logging(app)
