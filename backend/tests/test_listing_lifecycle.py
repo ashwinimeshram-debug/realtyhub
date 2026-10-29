@@ -76,6 +76,29 @@ def _owner_headers(app, owner_id):
     return {"Authorization": f"Bearer {_mint_owner_token(app, owner_id)}"}
 
 
+def _mint_admin_token(app, admin_id):
+    from flask_jwt_extended import create_access_token
+    with app.app_context():
+        return create_access_token(identity=str(admin_id))
+
+
+def _make_admin(app):
+    import bcrypt
+    from extensions import db
+    from models.models import Admin
+    marker = uuid.uuid4().hex[:8]
+    with app.app_context():
+        admin = Admin(
+            username=f"mgr-{marker}",
+            email=f"mgr-{marker}@example.com",
+            password=bcrypt.hashpw(b"secret", bcrypt.gensalt()).decode(),
+            role="admin",
+        )
+        db.session.add(admin)
+        db.session.commit()
+        return admin.id
+
+
 def _as_headers(app):
     """Switch JWT to header auth for the request (caller restores)."""
     prev_loc = app.config.get("JWT_TOKEN_LOCATION")
@@ -200,6 +223,44 @@ def test_expiry_reminders_are_idempotent(client, app):
             assert len(rows) == 1  # same band not re-sent
     finally:
         _cleanup(app, prop_id, owner_id)
+
+
+def test_admin_created_property_is_public(client, app):
+    admin_id = _make_admin(app)
+    prev = _as_headers(app)
+    prop_id = None
+    try:
+        rv = client.post(
+            "/api/admin/property",
+            headers={"Authorization": f"Bearer {_mint_admin_token(app, admin_id)}"},
+            data={
+                "title": "Staff Flat", "transaction_type": "sell",
+                "property_type": "flat", "location": "Nagpur",
+                "price": "5000000", "listed_by": "owner",
+            },
+        )
+        assert rv.status_code == 201, rv.get_json()
+        prop_id = rv.get_json()["id"]
+        # Staff-created listings have no owner checkout, so they must be
+        # published immediately instead of staying hidden as "unpaid".
+        assert _is_public(app, prop_id) is True
+        from extensions import db
+        from models.models import Property
+        with app.app_context():
+            prop = db.session.get(Property, prop_id)
+            assert prop.payment_status == "waived"
+            assert prop.published_at is not None
+    finally:
+        _restore(app, prev)
+        if prop_id:
+            _cleanup(app, prop_id)
+        from extensions import db
+        from models.models import Admin
+        with app.app_context():
+            admin = db.session.get(Admin, admin_id)
+            if admin:
+                db.session.delete(admin)
+                db.session.commit()
 
 
 def test_submit_publishes_with_free_bypass(client, app):
