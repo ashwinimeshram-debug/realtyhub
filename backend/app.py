@@ -90,9 +90,13 @@ def create_app():
                     pass
                 logger.warning("Startup seed step %s skipped: %s", _seed_step.__name__, exc)
 
-        db.session.remove()  # avoid leaking connections to the pool on app boot
-        db.engine.dispose()  # avoid leaking connections to the pool on app boot
-                
+        # LSAPI/Passenger import this module once and then fork worker
+        # children. Pooled connections opened above would be inherited by
+        # every child and share one Postgres socket, interleaving results
+        # (NoSuchColumnError, wrong rows). Drop them so each child connects
+        # on its own, and so boot-time seeding cannot leak a pooled slot.
+        db.session.remove()
+        db.engine.dispose()
 
     _register_blueprints(app)
     _register_error_handlers(app)
