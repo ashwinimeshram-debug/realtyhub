@@ -42,6 +42,21 @@ VALID_PROPERTY_TYPES = {"flat", "house", "plot", "commercial", "villa", "bungalo
 VALID_LISTED_BY = {"owner", "agent", "broker"}
 
 
+def _publish_staff_listing(prop):
+    """Publish a staff-created listing without an owner payment.
+
+    Listings uploaded through the admin panel have no ``owner_id`` and never go
+    through owner checkout, so they must be marked ``waived`` to satisfy the
+    public visibility predicate. Owner-submitted listings keep their paid
+    lifecycle and are left untouched.
+    """
+    if prop.owner_id is not None:
+        return
+    from utils.listing_lifecycle import ACTIVE_PAYMENT_STATUSES, waive_listing
+    if prop.payment_status not in ACTIVE_PAYMENT_STATUSES:
+        waive_listing(prop, None)
+
+
 def _login_limit_key():
     return request.json.get("username", "unknown") if request.is_json else "unknown"
 MIN_PASSWORD_LENGTH = 8
@@ -475,6 +490,8 @@ def create_property():
         closing_template_id=data.get("closing_template_id") or None,
         title_template_id=data.get("title_template_id") or None,
     )
+    if approved_now:
+        _publish_staff_listing(prop)
     db.session.add(prop)
     db.session.commit()
     prop.listing_id = generate_listing_id(prop.id)
@@ -659,6 +676,9 @@ def update_property(id):
             return jsonify({"error": f"Invalid status. Must be one of: {', '.join(VALID_STATUSES)}"}), 400
         prop.status = val
 
+    if prop.status == "approved" and prop.is_active:
+        _publish_staff_listing(prop)
+
     from models.models import PropertyContact, PropertyValue
     owner_pc = PropertyContact.query.filter_by(property_id=id, type="owner").first()
     owner_name = data.get("owner_name")
@@ -769,6 +789,7 @@ def approve_property(id):
         return jsonify({"error": "Property not found"}), 404
     prop.status = "approved"
     prop.is_active = True
+    _publish_staff_listing(prop)
     _audit_property(id, "approved")
     db.session.commit()
     _log_activity("approve", "property", id)
@@ -831,6 +852,8 @@ def reopen_property(id):
     prop.is_closed = False
     prop.is_active = True
     prop.closed_at = None
+    if prop.status == "approved":
+        _publish_staff_listing(prop)
     _audit_property(id, "reopened")
     db.session.commit()
     return jsonify({"message": "Property reopened"})
@@ -877,6 +900,8 @@ def toggle_visibility(id):
     if prop.is_active and prop.is_closed:
         prop.is_closed = False
         prop.closed_at = None
+    if prop.is_active:
+        _publish_staff_listing(prop)
     _audit_property(id, "visibility")
     db.session.commit()
     return jsonify({"message": "Visibility updated", "is_active": prop.is_active})
