@@ -393,8 +393,29 @@ def _seed_defaults():
     _seed_page_settings()
     _seed_mail_settings()
     _seed_lifecycle_settings()
+    _normalize_staff_listings()
 
     db.session.commit()
+
+
+def _normalize_staff_listings():
+    """Staff-created listings never carry an owner payment obligation.
+
+    ``unpaid`` is reserved for guest/owner submissions that must pay before
+    going live. Listings uploaded in the admin panel (``uploaded_by`` set, no
+    ``owner_id``) are free, so legacy rows stuck on ``unpaid`` are moved to
+    ``waived``. Idempotent: matched rows are updated once and never again.
+    """
+    from sqlalchemy import or_
+    from models.models import Property
+
+    updated = Property.query.filter(
+        Property.owner_id.is_(None),
+        Property.uploaded_by.isnot(None),
+        or_(Property.payment_status.is_(None), Property.payment_status == "unpaid"),
+    ).update({"payment_status": "waived"}, synchronize_session=False)
+    if updated:
+        logger.info("Normalized %s staff listing(s) to waived payment status", updated)
 
 
 def _seed_type_fields():

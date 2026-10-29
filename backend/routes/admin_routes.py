@@ -47,14 +47,31 @@ def _publish_staff_listing(prop):
 
     Listings uploaded through the admin panel have no ``owner_id`` and never go
     through owner checkout, so they must be marked ``waived`` to satisfy the
-    public visibility predicate. Owner-submitted listings keep their paid
-    lifecycle and are left untouched.
+    public visibility predicate. Listings still waiting for review are only
+    marked ``waived`` (never ``unpaid``, which is an owner/guest-only state).
+    Owner-submitted listings keep their paid lifecycle and are left untouched.
     """
     if prop.owner_id is not None:
+        return
+    if prop.status != "approved":
+        prop.payment_status = "waived"
         return
     from utils.listing_lifecycle import ACTIVE_PAYMENT_STATUSES, waive_listing
     if prop.payment_status not in ACTIVE_PAYMENT_STATUSES:
         waive_listing(prop, None)
+
+
+def _staff_payment_status(prop):
+    """Payment status exposed in the admin UI.
+
+    ``unpaid`` means "waiting for the owner to pay", so it only applies to
+    guest/owner submissions. Staff listings have no checkout and are always
+    free, so any legacy ``unpaid`` value is reported as ``waived``.
+    """
+    status = prop.payment_status or "unpaid"
+    if prop.owner_id is None and status == "unpaid":
+        return "waived"
+    return status
 
 
 def _login_limit_key():
@@ -350,7 +367,7 @@ def get_all_properties():
             "uploader_user_id": p.uploaded_admin.user_id if p.uploaded_admin else None,
             "owner_name": owner_pc.name if owner_pc else None,
             "is_featured": bool(p.is_featured),
-            "payment_status": p.payment_status or "unpaid",
+            "payment_status": _staff_payment_status(p),
             "expires_at": p.expires_at.isoformat() if p.expires_at else None,
             "featured_until": p.featured_until.isoformat() if p.featured_until else None,
             "first_image": image_map.get(p.id),
@@ -401,7 +418,7 @@ def get_property(id):
         "is_featured": prop.is_featured,
         "is_verified": prop.is_verified,
         "is_closed": prop.is_closed,
-        "payment_status": prop.payment_status or "unpaid",
+        "payment_status": _staff_payment_status(prop),
         "expires_at": prop.expires_at.isoformat() if prop.expires_at else None,
         "featured_until": prop.featured_until.isoformat() if prop.featured_until else None,
         "owner_id": prop.owner_id,
@@ -490,8 +507,9 @@ def create_property():
         closing_template_id=data.get("closing_template_id") or None,
         title_template_id=data.get("title_template_id") or None,
     )
-    if approved_now:
-        _publish_staff_listing(prop)
+    # Staff listings are always free: approved ones go live immediately, and
+    # pending ones are flagged "waived" instead of the owner-only "unpaid".
+    _publish_staff_listing(prop)
     db.session.add(prop)
     db.session.commit()
     prop.listing_id = generate_listing_id(prop.id)

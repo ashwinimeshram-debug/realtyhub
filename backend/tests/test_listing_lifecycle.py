@@ -250,8 +250,47 @@ def test_admin_created_property_is_public(client, app):
             prop = db.session.get(Property, prop_id)
             assert prop.payment_status == "waived"
             assert prop.published_at is not None
+
+        # Admin UI must never show the owner-only "unpaid" state for staff work.
+        rv = client.get(
+            "/api/admin/properties",
+            headers={"Authorization": f"Bearer {_mint_admin_token(app, admin_id)}"},
+            query_string={"per_page": 100},
+        )
+        assert rv.status_code == 200, rv.get_json()
+        item = next(i for i in rv.get_json()["items"] if i["id"] == prop_id)
+        assert item["payment_status"] == "waived"
     finally:
         _restore(app, prev)
+        if prop_id:
+            _cleanup(app, prop_id)
+        from extensions import db
+        from models.models import Admin
+        with app.app_context():
+            admin = db.session.get(Admin, admin_id)
+            if admin:
+                db.session.delete(admin)
+                db.session.commit()
+
+
+def test_pending_admin_listing_is_waived_not_unpaid(client, app):
+    """Sub-admin drafts have no checkout, so they are waived even in review."""
+    admin_id = _make_admin(app)
+    prop_id = None
+    try:
+        from extensions import db
+        from models.models import Property
+
+        prop_id = _make_prop(
+            app, None, uploaded_by=admin_id, status="pending",
+            is_active=False, payment_status="unpaid",
+        )
+        from app import _normalize_staff_listings
+        with app.app_context():
+            _normalize_staff_listings()
+            db.session.commit()
+            assert db.session.get(Property, prop_id).payment_status == "waived"
+    finally:
         if prop_id:
             _cleanup(app, prop_id)
         from extensions import db

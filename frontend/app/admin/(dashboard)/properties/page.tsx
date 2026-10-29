@@ -224,7 +224,7 @@ export default function PropertiesListPage() {
                             {property.featured_until && new Date(property.featured_until) > new Date() && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-100 text-yellow-700">★ Featured</span>
                             )}
-                            {property.payment_status === "unpaid" && (
+                            {property.payment_status === "unpaid" && !property.uploader_user_id && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700">Unpaid</span>
                             )}
                             {property.expires_at && property.status === "approved" && !property.is_closed && (
