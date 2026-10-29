@@ -67,7 +67,10 @@ DATABASE_URL=postgresql+psycopg2://sumatien_realtyhub:PASS@127.0.0.200:5432/suma
 cPanel → **Setup Python App → Create Application**:
 - Python version: 3.10+ (match the venv you create)
 - Application root: `realtyhub/backend`
-- Application URL: `api.plotandroof.com`
+- Application URL: select domain `api.plotandroof.com` and leave the path box
+  **empty**. Typing the domain into the path box makes the base URI
+  `/api.plotandroof.com/`, so LiteSpeed logs "current context is not set" and
+  serves static files instead of the API.
 - Application startup file: `passenger_wsgi.py`
 - Entry point: `application`
 
